@@ -1,0 +1,2933 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+<title>Vigilancia IAAS · Hospital del Cobre</title>
+<link rel="icon" href="data:,">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #f8fafc; }
+  * { -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+/* ---------------------------------------------------------------------- */
+/* Constantes de dominio                                                   */
+/* ---------------------------------------------------------------------- */
+
+const { useState, useEffect, useCallback, useMemo } = React;
+
+/* ---------------------------------------------------------------------- */
+/* Íconos (SVG en línea — reemplazan lucide-react para funcionar sin build) */
+/* ---------------------------------------------------------------------- */
+
+function IconBase({ children, size = 18, className = "" }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {children}
+    </svg>
+  );
+}
+
+const Search = (p) => (
+  <IconBase {...p}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </IconBase>
+);
+const Plus = (p) => (
+  <IconBase {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </IconBase>
+);
+const X = (p) => (
+  <IconBase {...p}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </IconBase>
+);
+const Lock = (p) => (
+  <IconBase {...p}>
+    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </IconBase>
+);
+const Cloud = (p) => (
+  <IconBase {...p}>
+    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+  </IconBase>
+);
+const CloudOff = (p) => (
+  <IconBase {...p}>
+    <path d="m2 2 20 20" />
+    <path d="M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193" />
+    <path d="M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07" />
+  </IconBase>
+);
+const Eye = (p) => (
+  <IconBase {...p}>
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </IconBase>
+);
+const EyeOff = (p) => (
+  <IconBase {...p}>
+    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+    <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+    <path d="M2 2l20 20" />
+  </IconBase>
+);
+const AlertTriangle = (p) => (
+  <IconBase {...p}>
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    <path d="M12 9v4M12 17h.01" />
+  </IconBase>
+);
+const ChevronRight = (p) => (
+  <IconBase {...p}>
+    <path d="m9 18 6-6-6-6" />
+  </IconBase>
+);
+const ChevronLeft = (p) => (
+  <IconBase {...p}>
+    <path d="m15 18-6-6 6-6" />
+  </IconBase>
+);
+const Clock = (p) => (
+  <IconBase {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 6v6l4 2" />
+  </IconBase>
+);
+const Stethoscope = (p) => (
+  <IconBase {...p}>
+    <path d="M5 3v4a5 5 0 0 0 5 5v0a5 5 0 0 0 5-5V3" />
+    <path d="M8.5 12v2a5.5 5.5 0 0 0 11 0v-2.5" />
+    <circle cx="19.5" cy="10.5" r="1.8" />
+  </IconBase>
+);
+const ClipboardList = (p) => (
+  <IconBase {...p}>
+    <rect x="8" y="2" width="8" height="4" rx="1" />
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    <path d="M9 11h6M9 16h6M9 6h.01" />
+  </IconBase>
+);
+const History = (p) => (
+  <IconBase {...p}>
+    <path d="M3 3v5h5" />
+    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+    <path d="M12 7v5l4 2" />
+  </IconBase>
+);
+const CheckCircle2 = (p) => (
+  <IconBase {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="m9 12 2 2 4-4" />
+  </IconBase>
+);
+const Circle = (p) => (
+  <IconBase {...p}>
+    <circle cx="12" cy="12" r="10" />
+  </IconBase>
+);
+const Save = (p) => (
+  <IconBase {...p}>
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+    <path d="M17 21v-8H7v8M7 3v5h8" />
+  </IconBase>
+);
+const UserPlus = (p) => (
+  <IconBase {...p}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M19 8v6M22 11h-6" />
+  </IconBase>
+);
+const ArrowLeft = (p) => (
+  <IconBase {...p}>
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </IconBase>
+);
+const Loader2 = (p) => (
+  <IconBase {...p}>
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+  </IconBase>
+);
+const CalendarClock = (p) => (
+  <IconBase {...p}>
+    <path d="M8 2v4M16 2v4" />
+    <rect x="3" y="4" width="18" height="17" rx="2" />
+    <path d="M3 10h18" />
+    <circle cx="16" cy="16" r="4" />
+    <path d="M16 14.5V16l1 1" />
+  </IconBase>
+);
+const Droplet = (p) => (
+  <IconBase {...p}>
+    <path d="M12 2.7s6 6.3 6 10.3a6 6 0 0 1-12 0c0-4 6-10.3 6-10.3Z" />
+  </IconBase>
+);
+const Syringe = (p) => (
+  <IconBase {...p}>
+    <path d="m18 2 4 4M17 7l3-3M8 21l-4-4M2.5 21.5 5 19M9 12l3 3M12 9l3 3" />
+    <path d="M19 8 8.5 18.5c-1.1 1.1-2.9 1.1-4 0v0c-1.1-1.1-1.1-2.9 0-4L15 4l4 4Z" />
+  </IconBase>
+);
+const BedDouble = (p) => (
+  <IconBase {...p}>
+    <path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8" />
+    <path d="M2 20h20M4 10V6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v4M13 10V6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v4" />
+  </IconBase>
+);
+const FileWarning = (p) => (
+  <IconBase {...p}>
+    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+    <path d="M14 2v6h6" />
+    <path d="M12 11v3M12 17h.01" />
+  </IconBase>
+);
+
+const STORAGE_KEY = "vigilancia-iaas-hospitalizaciones";
+
+const SERVICIOS = ["UPC", "MQ", "Urgencia", "Medicina", "Otro"];
+
+const SINTOMAS = [
+  { key: "deposicionesLiquidas", label: "Deposiciones líquidas" },
+  { key: "sintomasRespiratorios", label: "Síntomas respiratorios" },
+];
+
+const ELEMENTO_FIEBRE = { id: "fiebre", texto: "Fiebre ≥ 38 °C axilar" };
+
+const DISPOSITIVOS = [
+  { key: "cup", label: "CUP", full: "Catéter urinario permanente" },
+  { key: "cvc", label: "CVC / PICC", full: "Catéter venoso central" },
+  { key: "vmi", label: "VMI", full: "TET o TQT — Ventilación mecánica invasiva" },
+];
+
+const TIPOS_CVC = [
+  "Yugular interno",
+  "Subclavio",
+  "Femoral",
+  "PICC (inserción periférica)",
+  "Corta duración / transitorio",
+  "Tunelizado",
+  "Con reservorio",
+  "Otro",
+];
+
+const EXAMENES = [
+  { key: "hto", label: "Hematocrito", unit: "%" },
+  { key: "hb", label: "Hemoglobina", unit: "g/dL" },
+  { key: "leucocitos", label: "Leucocitos", unit: "/mm³" },
+  { key: "pcr", label: "PCR", unit: "mg/L" },
+  { key: "pct", label: "PCT", unit: "ng/mL" },
+  { key: "glicemia", label: "Glicemia", unit: "mg/dL" },
+];
+
+const SEDIMENTO = [
+  { key: "celulasEpiteliales", label: "Células epiteliales" },
+  { key: "leucocitosSed", label: "Leucocitos" },
+  { key: "bacterias", label: "Bacterias" },
+  { key: "piocitos", label: "Piocitos" },
+];
+
+const CULTIVOS = [
+  { key: "urocultivo", label: "Urocultivo" },
+  { key: "hemocultivos", label: "Hemocultivos" },
+  { key: "aetCsb", label: "AET / CSB" },
+  { key: "otrosCultivos", label: "Otros cultivos" },
+];
+
+const ALERTA_DIAS = 10;
+
+const CRITERIOS_FOCOS = {
+  cvc: {
+    label: "CVC",
+    foco: "Infección del torrente sanguíneo asociada a CVC (ITS/CVC)",
+    grupoA: {
+      titulo: "Signos y síntomas — se requiere al menos 1",
+      elementos: [
+        ELEMENTO_FIEBRE,
+        { id: "hipotermia", texto: "Hipotermia ≤ 36 °C axilar" },
+        { id: "hipotension", texto: "Hipotensión" },
+        { id: "taquiBradi", texto: "Taquicardia o bradicardia" },
+        { id: "apnea", texto: "Apnea (menores de 1 año)", edadMax: 1 },
+        { id: "eritemaExudado", texto: "Eritema y exudado en sitio de inserción del CVC" },
+      ],
+    },
+    grupoB: {
+      titulo: "Confirmación microbiológica — se requiere al menos 1",
+      elementos: [
+        { id: "hcPatogeno", texto: "Hemocultivo periférico con microorganismo patógeno" },
+        { id: "hcComensal2", texto: "Comensal en ≥2 hemocultivos periféricos (sitios distintos)" },
+        { id: "hcComensalPunta", texto: "Comensal en hemocultivo periférico + cultivo de punta de catéter" },
+      ],
+    },
+  },
+  cup: {
+    label: "CUP",
+    foco: "Infección del tracto urinario asociada a CUP (ITU/CUP)",
+    grupoA: {
+      titulo: "Signos y síntomas — se requiere al menos 1",
+      elementos: [
+        ELEMENTO_FIEBRE,
+        { id: "sintIrritativos", texto: "Síntomas irritativos vesicales (tenesmo, urgencia, polaquiuria, disuria, dolor suprapúbico)" },
+        { id: "dolorCV", texto: "Dolor costo vertebral (palpación o espontáneo)" },
+        { id: "alteracionConciencia", texto: "Alteración nueva del estado de conciencia (≥65 años)", edadMin: 65 },
+      ],
+    },
+    grupoB: {
+      titulo: "Sedimento de orina — se requiere al menos 1",
+      elementos: [
+        { id: "leucocituria", texto: "Leucocituria" },
+        { id: "placasPus", texto: "Placas de pus" },
+        { id: "piocitos", texto: "Piocitos" },
+      ],
+    },
+    grupoC: {
+      titulo: "Urocultivo",
+      elementos: [{ id: "urocultivoPositivo", texto: "Urocultivo ≤2 microorganismos, ≥1 con >100.000 UFC/ml" }],
+    },
+  },
+  vmi: {
+    label: "VMI",
+    foco: "Neumonía asociada a VMI — NAVMI (Criterio I, paciente ≥1 año)",
+    grupoA: {
+      titulo: "Imagen — se requiere al menos 1",
+      elementos: [
+        { id: "infiltrado", texto: "Infiltrado (nuevo o progresión si hay patología previa)" },
+        { id: "condensacion", texto: "Condensación" },
+        { id: "cavitacion", texto: "Cavitación" },
+      ],
+    },
+    grupoB: {
+      titulo: "Clínica / laboratorio — se requieren al menos 2",
+      elementos: [
+        ELEMENTO_FIEBRE,
+        { id: "leucoAlterada", texto: "Leucopenia (<4.000) o leucocitosis (>12.000)" },
+        { id: "deterioroGaseoso", texto: "Deterioro del intercambio gaseoso no explicable por otra causa" },
+        { id: "aspiradoPatogeno", texto: "Aspirado endotraqueal / BAL / cepillo con MO patógeno en recuento significativo" },
+      ],
+    },
+  },
+};
+
+function gruposDeFoco(foco) {
+  return ["grupoA", "grupoB", "grupoC"].filter((g) => foco[g]);
+}
+
+// Elementos que se repiten en más de un foco (ej. fiebre aparece en CVC, CUP y VMI):
+// se preguntan una sola vez por visita y se aplican a todos los focos correspondientes.
+const ELEMENTOS_COMPARTIDOS = {
+  fiebre: { texto: "Fiebre ≥ 38 °C axilar" },
+};
+const ELEMENTOS_COMPARTIDOS_IDS = Object.keys(ELEMENTOS_COMPARTIDOS);
+
+function parseEdadAnios(edadStr) {
+  if (!edadStr) return null;
+  const m = String(edadStr).match(/(\d+)/);
+  if (!m) return null;
+  const num = parseInt(m[1], 10);
+  if (/mes/i.test(edadStr)) return num / 12;
+  return num;
+}
+
+// Algunos elementos de la definición oficial solo aplican a un grupo etario específico.
+// Este hospital no maneja pacientes menores de 1 año, así que ese criterio queda oculto salvo excepción.
+function elementoAplicable(elId, hospitalizacion) {
+  const edad = parseEdadAnios(hospitalizacion?.edad);
+  if (elId === "apnea") return edad !== null && edad < 1;
+  if (elId === "alteracionConciencia") return edad !== null && edad >= 65;
+  return true;
+}
+
+function initEstadosFoco(focoKey) {
+  const foco = CRITERIOS_FOCOS[focoKey];
+  const estados = {};
+  gruposDeFoco(foco).forEach((g) => {
+    foco[g].elementos.forEach((el) => {
+      if (ELEMENTOS_COMPARTIDOS_IDS.includes(el.id)) return;
+      estados[el.id] = { estado: "no_revisado", fecha: "" };
+    });
+  });
+  return estados;
+}
+
+function initCompartidos() {
+  const estados = {};
+  ELEMENTOS_COMPARTIDOS_IDS.forEach((id) => {
+    estados[id] = { estado: "no_revisado", fecha: "" };
+  });
+  return estados;
+}
+
+function ensureCriteriosIAAS(h) {
+  const actual = h.criteriosIAAS || {};
+  const result = { ...actual };
+  let algunFocoActivo = false;
+  Object.keys(CRITERIOS_FOCOS).forEach((key) => {
+    if (focoInstalado(h, key)) {
+      algunFocoActivo = true;
+      if (!result[key]) result[key] = initEstadosFoco(key);
+    }
+  });
+  if (algunFocoActivo && !result.compartidos) {
+    result.compartidos = initCompartidos();
+  }
+  return result;
+}
+
+// Junta los elementos "presente" de un foco, ya sea que vivan en el bucket propio del foco
+// o en el bucket compartido (fiebre, etc.), para notificación y resúmenes.
+function elementosPresentesFoco(criteriosIAAS, focoKey) {
+  const foco = CRITERIOS_FOCOS[focoKey];
+  if (!foco) return [];
+  const focoEstados = criteriosIAAS?.[focoKey] || {};
+  const compartidos = criteriosIAAS?.compartidos || {};
+  const result = [];
+  gruposDeFoco(foco).forEach((g) => {
+    foco[g].elementos.forEach((el) => {
+      const estado = ELEMENTOS_COMPARTIDOS_IDS.includes(el.id) ? compartidos[el.id] : focoEstados[el.id];
+      if (estado?.estado === "presente") {
+        result.push({ texto: el.texto, fecha: estado.fecha });
+      }
+    });
+  });
+  return result;
+}
+
+const CIRUGIAS_TRAZADORAS = [
+  { key: "proteseCadera", label: "Prótesis de cadera", criterios: ["Presencia de pus (ED)", "Fiebre"] },
+  { key: "herniaInguinal", label: "Hernia inguinal adulto", criterios: ["Sensibilidad o dolor", "Aumento de volumen"] },
+  { key: "colecistectomiaLaparo", label: "Colecistectomía laparoscópica", criterios: [] },
+  { key: "colecistectomiaLaparotomica", label: "Colecistectomía laparotómica", criterios: ["Secreción seropurulenta o serohemática", "Eritema o calor local"] },
+  { key: "cesarea", label: "Cesárea (con o sin trabajo de parto)", criterios: [] },
+  { key: "otrasCirugias", label: "Otras cirugías", criterios: [] },
+  { key: "parto", label: "Parto", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre"] },
+  { key: "cataratas", label: "Cataratas (con o sin LIO)", criterios: ["Dolor ocular", "Visión borrosa", "Hipopion"] },
+];
+
+const AREPI_LIST = [
+  { key: "sdaNeonatos", label: "SDA en neonatos y lactantes", criterios: ["2 o más deposiciones líquidas o disgregadas dentro de 12 hr"] },
+  { key: "iravbLactantes", label: "IRAVB en lactantes (2)", criterios: ["Fiebre", "Leucocitosis o leucopenia", "Tos", "Aumento de expectoración", "Imagen compatible", "Roncus", "Sibilancias", "Distrés respiratorio", "Apnea", "Bradicardia"] },
+  { key: "edaCDifficile", label: "Enfermedad diarreica aguda por C. difficile (adultos)", criterios: ["Más de 1 deposición líquida en 12 hr", "Más de 3 deposiciones disgregadas o líquidas en 24 hr", "Megacolon tóxico", "Colitis pseudomembranosa por EDB"] },
+  { key: "sarsCov2", label: "Infección respiratoria por SARS-CoV-2 (3)", criterios: ["Fiebre", "Congestión nasal", "Disnea", "Taquipnea", "Mialgia", "Dolor torácico", "Diarrea", "TAC vidrio esmerilado bilateral basal periférico", "Anosmia", "Ageusia", "Tos", "Odinofagia", "Fatiga", "Calofríos", "Anorexia", "Cefalea"] },
+];
+
+/* ---------------------------------------------------------------------- */
+/* Utilidades                                                              */
+/* ---------------------------------------------------------------------- */
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function fmtDate(d) {
+  if (!d) return "—";
+  const dt = new Date(d + "T00:00:00");
+  if (isNaN(dt)) return d;
+  return dt.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function daysBetween(a, b) {
+  const A = new Date(a + "T00:00:00");
+  const B = new Date(b + "T00:00:00");
+  return Math.round((B - A) / 86400000);
+}
+
+function lastMovementDate(h) {
+  const dates = [h.fechaIngresoVigilancia, ...h.evoluciones.map((e) => e.fecha)].filter(Boolean);
+  if (!dates.length) return h.fechaIngresoVigilancia;
+  return dates.sort().slice(-1)[0];
+}
+
+function emptyDip() {
+  const base = {
+    cup: { instalado: false, fechaInstalacion: "", ubicacion: "", fechaRetiro: "" },
+    vmi: { instalado: false, fechaInstalacion: "", ubicacion: "", fechaRetiro: "" },
+    cvc: { cateteres: [] },
+  };
+  return base;
+}
+
+function newCateterCVC() {
+  return {
+    id: uid(),
+    tipo: TIPOS_CVC[0],
+    fechaInstalacion: todayISO(),
+    ubicacion: "",
+    fechaRetiro: "",
+    nutricionParenteral: false,
+  };
+}
+
+function cateteresCVCActivos(h) {
+  return (h.dip?.cvc?.cateteres || []).filter((c) => !c.fechaRetiro);
+}
+
+function focoInstalado(h, key) {
+  if (key === "cvc") return cateteresCVCActivos(h).length > 0;
+  return !!h.dip?.[key]?.instalado && !h.dip[key]?.fechaRetiro;
+}
+
+function focoDiasTotal(h, key) {
+  if (key === "cvc") {
+    return (h.dip?.cvc?.cateteres || []).reduce(
+      (sum, c) => sum + daysBetween(c.fechaInstalacion, c.fechaRetiro || todayISO()),
+      0
+    );
+  }
+  const d = h.dip?.[key];
+  if (!d?.instalado) return 0;
+  return daysBetween(d.fechaInstalacion, d.fechaRetiro || todayISO());
+}
+
+function newHospitalizacion() {
+  return {
+    id: uid(),
+    rut: "",
+    nombre: "",
+    edad: "",
+    prevision: "",
+    servicio: "UPC",
+    cama: "",
+    fechaHospitalizacion: todayISO(),
+    fechaIngresoVigilancia: todayISO(),
+    diagnostico: "",
+    cirugias: [],
+    antecedentes: "",
+    tipoAislamiento: "",
+    agentesIAAS: "",
+    dip: emptyDip(),
+    evoluciones: [],
+    criteriosIAAS: {},
+    estado: "activo",
+    cierre: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function emptyEvolucion() {
+  return {
+    id: uid(),
+    fecha: todayISO(),
+    examenes: EXAMENES.reduce((a, e) => ({ ...a, [e.key]: "" }), {}),
+    sedimentoOrina: SEDIMENTO.reduce((a, s) => ({ ...a, [s.key]: "" }), {}),
+    cultivos: CULTIVOS.reduce((a, c) => ({ ...a, [c.key]: { resultado: "", pendiente: false } }), {}),
+    imagenes: { torax: "", otros: "" },
+    sintomas: SINTOMAS.reduce((a, s) => ({ ...a, [s.key]: { presente: false, fecha: "" } }), {}),
+    dipEstado: DISPOSITIVOS.reduce((a, d) => ({ ...a, [d.key]: true }), {}),
+    antibioticos: "",
+    comentario: "",
+  };
+}
+
+function newNotificacion(h) {
+  const diasEstadia = daysBetween(h.fechaHospitalizacion, h.cierre?.fechaAlta || todayISO());
+  return {
+    id: uid(),
+    fechaNotificacion: todayISO(),
+    // autocompletado
+    nombre: h.nombre,
+    edad: h.edad,
+    rut: h.rut,
+    prevision: h.prevision,
+    servicio: h.servicio,
+    fechaIngreso: h.fechaHospitalizacion,
+    diasEstadia,
+    fechaEgreso: h.cierre?.fechaAlta || "",
+    diagnosticoIngreso: h.diagnostico,
+    // a completar
+    diagnosticoIAAS: "",
+    fallecio: "",
+    categoria: "",
+    dip: Object.keys(CRITERIOS_FOCOS).reduce((acc, key) => {
+      const instalado = focoInstalado(h, key);
+      const presentes = elementosPresentesFoco(h.criteriosIAAS, key).map((e) => `${e.texto} (${fmtDate(e.fecha)})`);
+      acc[key] = {
+        siNo: instalado && presentes.length ? "SI" : instalado ? "" : "",
+        diasCalendario: instalado ? focoDiasTotal(h, key) : "",
+        criteriosMarcados: presentes,
+        mo: h.agentesIAAS || "",
+      };
+      return acc;
+    }, {}),
+    cirugias: CIRUGIAS_TRAZADORAS.reduce((acc, c) => {
+      acc[c.key] = { siNo: "", fecha: "", mo: "", criteriosMarcados: [] };
+      return acc;
+    }, {}),
+    arepi: AREPI_LIST.reduce((acc, a) => {
+      acc[a.key] = { siNo: "", fechaInicioSintomas: "", servicio: "", criteriosMarcados: [], cultivoConfirmacion: "" };
+      return acc;
+    }, {}),
+    resumenClinico: "",
+    confirmacion: "",
+    enfermeraIAAS: USUARIO && USUARIO.rol === "enfermera" ? USUARIO.nombre : "",
+    medicoIAAS: USUARIO && USUARIO.rol === "medico" ? USUARIO.nombre : "",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/* ---------------------------------------------------------------------- */
+/* Persistencia y sincronización en la nube (Google Sheets vía Apps Script)*/
+/* ---------------------------------------------------------------------- */
+
+/* ⚙️ CONFIGURACIÓN: pega aquí la URL de tu Google Apps Script (termina en /exec) */
+const SYNC_URL = "PEGA_AQUI_LA_URL_DE_TU_APPS_SCRIPT";
+
+const CACHE_KEY = "vigilancia-iaas-cache-v2";      // respaldo local CIFRADO
+const PENDING_KEY = "vigilancia-iaas-pendiente";   // hay cambios sin subir a la nube
+const CLAVE_SESION_KEY = "vigilancia-iaas-clave";  // clave durante la sesión
+
+let CLAVE = window.sessionStorage.getItem(CLAVE_SESION_KEY) || null;
+let USUARIO = null;
+try {
+  USUARIO = JSON.parse(window.sessionStorage.getItem("vigilancia-iaas-usuario") || "null");
+} catch (e) {}
+let PRELOADED = null;
+
+const cloudEnabled = () =>
+  /^https:\/\//.test(SYNC_URL) && SYNC_URL.indexOf("PEGA_AQUI") === -1;
+
+/* Estado de sincronización (para el indicador del encabezado) */
+const SyncState = {
+  online: null,
+  listeners: new Set(),
+  set(v) {
+    if (this.online !== v) {
+      this.online = v;
+      this.listeners.forEach((f) => f(v));
+    }
+  },
+};
+
+/* --- Cifrado local: AES-GCM con llave derivada de la clave (PBKDF2) --- */
+const _te = new TextEncoder();
+const _td = new TextDecoder();
+const _b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const _unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function deriveKey(clave, salt) {
+  const base = await crypto.subtle.importKey("raw", _te.encode(clave), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: 120000, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function cacheSave(list) {
+  try {
+    if (!window.crypto || !crypto.subtle || !CLAVE) return;
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(CLAVE, salt);
+    const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, _te.encode(JSON.stringify(list)));
+    window.localStorage.setItem(CACHE_KEY, JSON.stringify({ salt: _b64(salt), iv: _b64(iv), data: _b64(data) }));
+  } catch (e) {
+    /* el respaldo local es best-effort */
+  }
+}
+
+async function cacheLoad() {
+  const raw = window.localStorage.getItem(CACHE_KEY);
+  if (!raw) return null;
+  const p = JSON.parse(raw);
+  const key = await deriveKey(CLAVE, _unb64(p.salt));
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: _unb64(p.iv) }, key, _unb64(p.data));
+  return JSON.parse(_td.decode(plain)); // lanza error si la clave es incorrecta
+}
+
+/* --- Datos antiguos (versión anterior, sin cifrar) --- */
+function legacyLoad() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function mergeById(base, extra) {
+  const map = new Map((base || []).map((r) => [r.id, r]));
+  for (const r of extra || []) {
+    const prev = map.get(r.id);
+    if (!prev || String(r.updatedAt || "") >= String(prev.updatedAt || "")) map.set(r.id, r);
+  }
+  return [...map.values()];
+}
+
+/* --- Llamadas a la nube --- */
+async function cloudGet() {
+  const res = await fetch(SYNC_URL + "?clave=" + encodeURIComponent(CLAVE), { redirect: "follow" });
+  return res.json();
+}
+
+async function cloudPost(records) {
+  const res = await fetch(SYNC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ clave: CLAVE, records }),
+    redirect: "follow",
+  });
+  return res.json();
+}
+
+/* --- Desbloqueo: valida la clave y carga los datos --- */
+async function desbloquear(claveIngresada) {
+  CLAVE = claveIngresada;
+  const legacy = legacyLoad();
+
+  if (cloudEnabled()) {
+    let data;
+    try {
+      data = await cloudGet();
+    } catch (e) {
+      /* Sin conexión: intentar respaldo local cifrado */
+      try {
+        const cached = await cacheLoad();
+        if (cached === null && !legacy) throw new Error("sin-datos");
+        PRELOADED = mergeById(cached || [], legacy || []);
+        SyncState.set(false);
+        window.sessionStorage.setItem(CLAVE_SESION_KEY, CLAVE);
+        return;
+      } catch (e2) {
+        CLAVE = null;
+        throw { code: "offline" };
+      }
+    }
+    if (!data.ok) {
+      CLAVE = null;
+      throw { code: "clave" };
+    }
+    USUARIO = data.usuario || null;
+    try {
+      window.sessionStorage.setItem("vigilancia-iaas-usuario", JSON.stringify(USUARIO));
+    } catch (e) {}
+    let records = data.records || [];
+    /* Subir cambios pendientes hechos sin conexión */
+    if (window.localStorage.getItem(PENDING_KEY)) {
+      try {
+        const cached = await cacheLoad();
+        if (cached) {
+          const r = await cloudPost(cached);
+          if (r.ok) records = r.records || records;
+        }
+        window.localStorage.removeItem(PENDING_KEY);
+      } catch (e) {}
+    }
+    /* Migrar datos de la versión anterior (una sola vez) */
+    if (legacy && legacy.length) {
+      const stamped = legacy.map((h) => ({ ...h, updatedAt: h.updatedAt || h.createdAt || new Date().toISOString() }));
+      const r = await cloudPost(mergeById(records, stamped));
+      if (r.ok) records = r.records || records;
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+    await cacheSave(records);
+    PRELOADED = records;
+    SyncState.set(true);
+  } else {
+    /* Modo solo-local (URL de nube aún no configurada) */
+    const hasCache = !!window.localStorage.getItem(CACHE_KEY);
+    let records = [];
+    if (hasCache) {
+      try {
+        records = (await cacheLoad()) || [];
+      } catch (e) {
+        CLAVE = null;
+        throw { code: "clave" };
+      }
+    }
+    if (legacy && legacy.length) {
+      records = mergeById(records, legacy);
+      window.localStorage.removeItem(STORAGE_KEY);
+    }
+    await cacheSave(records);
+    PRELOADED = records;
+    SyncState.set(null);
+  }
+  window.sessionStorage.setItem(CLAVE_SESION_KEY, CLAVE);
+}
+
+function bloquearApp() {
+  window.sessionStorage.removeItem(CLAVE_SESION_KEY);
+  window.sessionStorage.removeItem("vigilancia-iaas-usuario");
+  window.location.reload();
+}
+
+/* --- Interfaz usada por la app (mismas firmas que antes) --- */
+async function loadHospitalizaciones() {
+  if (PRELOADED) {
+    const d = PRELOADED;
+    PRELOADED = null;
+    return d;
+  }
+  try {
+    return (await cacheLoad()) || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function persistHospitalizaciones(list) {
+  await cacheSave(list);
+  if (!cloudEnabled()) return { ok: true };
+  try {
+    const r = await cloudPost(list);
+    if (r.ok) {
+      SyncState.set(true);
+      window.localStorage.removeItem(PENDING_KEY);
+      if (r.records) await cacheSave(r.records);
+      return { ok: true, records: r.records };
+    }
+    throw new Error("rechazado");
+  } catch (e) {
+    window.localStorage.setItem(PENDING_KEY, "1");
+    SyncState.set(false);
+    return { ok: true, offline: true };
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Componentes pequeños de UI                                              */
+/* ---------------------------------------------------------------------- */
+
+function Field({ label, children, className = "" }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-1">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputCls =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 placeholder:text-slate-400";
+
+function TextInput(props) {
+  return <input {...props} className={inputCls + (props.className ? " " + props.className : "")} />;
+}
+
+function TextArea(props) {
+  return <textarea {...props} className={inputCls + " min-h-[70px] " + (props.className || "")} />;
+}
+
+function Select({ children, ...props }) {
+  return (
+    <select {...props} className={inputCls}>
+      {children}
+    </select>
+  );
+}
+
+function Pill({ tone = "slate", children }) {
+  const tones = {
+    slate: "bg-slate-100 text-slate-600",
+    teal: "bg-teal-50 text-teal-700 border border-teal-200",
+    amber: "bg-amber-50 text-amber-700 border border-amber-200",
+    red: "bg-rose-50 text-rose-700 border border-rose-200",
+    green: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${tones[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+function SectionCard({ icon: Icon, title, subtitle, children, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
+      >
+        <div className="flex items-center gap-2.5 text-left">
+          {Icon && <Icon size={16} className="text-teal-700 shrink-0" />}
+          <div>
+            <div className="text-sm font-bold text-slate-800">{title}</div>
+            {subtitle && <div className="text-xs text-slate-500">{subtitle}</div>}
+          </div>
+        </div>
+        <ChevronRight size={16} className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+      </button>
+      {open && <div className="p-4 space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Vista: Censo (lista de pacientes activos)                               */
+/* ---------------------------------------------------------------------- */
+
+function CensoView({ hospitalizaciones, onOpen, onNuevo }) {
+  const [filtroServicio, setFiltroServicio] = useState("Todos");
+  const [busqueda, setBusqueda] = useState("");
+
+  const activos = hospitalizaciones.filter((h) => h.estado === "activo");
+
+  const filtrados = activos.filter((h) => {
+    const matchServicio = filtroServicio === "Todos" || h.servicio === filtroServicio;
+    const q = busqueda.trim().toLowerCase();
+    const matchQ =
+      !q || h.nombre.toLowerCase().includes(q) || h.rut.toLowerCase().includes(q) || h.cama.toLowerCase().includes(q);
+    return matchServicio && matchQ;
+  });
+
+  const withAlert = filtrados.filter((h) => daysBetween(lastMovementDate(h), todayISO()) >= ALERTA_DIAS).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-slate-800">Censo de vigilancia activa</h1>
+          <p className="text-xs text-slate-500">
+            {activos.length} paciente{activos.length !== 1 ? "s" : ""} en seguimiento
+            {withAlert > 0 && (
+              <span className="text-amber-600 font-semibold"> · {withAlert} sin registro hace {ALERTA_DIAS}+ días</span>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={onNuevo}
+          className="flex items-center gap-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-3.5 py-2 shadow-sm shrink-0"
+        >
+          <UserPlus size={16} /> Nuevo
+        </button>
+      </div>
+
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre, RUT o cama…"
+            className={inputCls + " pl-9"}
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {["Todos", ...SERVICIOS].map((s) => (
+          <button
+            key={s}
+            onClick={() => setFiltroServicio(s)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors ${
+              filtroServicio === s
+                ? "bg-teal-700 text-white border-teal-700"
+                : "bg-white text-slate-600 border-slate-300 hover:border-teal-400"
+            }`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {filtrados.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white py-12 text-center">
+          <BedDouble size={28} className="mx-auto text-slate-300 mb-2" />
+          <p className="text-sm text-slate-500">
+            {activos.length === 0 ? "Aún no hay pacientes en vigilancia activa." : "Sin resultados para este filtro."}
+          </p>
+          <button onClick={onNuevo} className="mt-3 text-sm font-semibold text-teal-700 hover:underline">
+            Activar primera ficha
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtrados
+            .sort((a, b) => daysBetween(lastMovementDate(a), todayISO()) < daysBetween(lastMovementDate(b), todayISO()) ? 1 : -1)
+            .map((h) => {
+              const dias = daysBetween(lastMovementDate(h), todayISO());
+              const alerta = dias >= ALERTA_DIAS;
+              const dispositivosActivos = DISPOSITIVOS.filter((d) => focoInstalado(h, d.key));
+              return (
+                <button
+                  key={h.id}
+                  onClick={() => onOpen(h.id)}
+                  className="w-full text-left rounded-xl border border-slate-200 bg-white p-3.5 hover:border-teal-400 hover:shadow-sm transition-all"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-800 text-sm truncate">{h.nombre || "Sin nombre"}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {h.rut || "Sin RUT"} · {h.edad ? `${h.edad} años` : "edad ?"} · Cama {h.cama || "?"}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Pill tone="teal">{h.servicio}</Pill>
+                      {alerta && (
+                        <Pill tone="amber">
+                          <AlertTriangle size={10} /> {dias}d sin visita
+                        </Pill>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-2.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {dispositivosActivos.length > 0 ? (
+                        dispositivosActivos.map((d) => (
+                          <span key={d.key} className="text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200 rounded px-1.5 py-0.5">
+                            {d.label}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[11px] text-slate-400">Sin DIP activo</span>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-slate-400">
+                      {h.evoluciones.length} visita{h.evoluciones.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Vista: Histórico (fichas cerradas)                                      */
+/* ---------------------------------------------------------------------- */
+
+function HistoricoView({ hospitalizaciones, onOpen }) {
+  const [busqueda, setBusqueda] = useState("");
+  const cerrados = hospitalizaciones.filter((h) => h.estado === "cerrado");
+  const q = busqueda.trim().toLowerCase();
+  const filtrados = cerrados.filter(
+    (h) => !q || h.nombre.toLowerCase().includes(q) || h.rut.toLowerCase().includes(q)
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-bold text-slate-800">Histórico de vigilancia</h1>
+        <p className="text-xs text-slate-500">{cerrados.length} ficha(s) cerrada(s) — cada ingreso queda archivado por separado</p>
+      </div>
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          placeholder="Buscar por nombre o RUT…"
+          className={inputCls + " pl-9"}
+        />
+      </div>
+      {filtrados.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white py-12 text-center">
+          <History size={28} className="mx-auto text-slate-300 mb-2" />
+          <p className="text-sm text-slate-500">Sin fichas cerradas aún.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtrados
+            .sort((a, b) => (a.cierre?.fechaAlta < b.cierre?.fechaAlta ? 1 : -1))
+            .map((h) => (
+              <button
+                key={h.id}
+                onClick={() => onOpen(h.id)}
+                className="w-full text-left rounded-xl border border-slate-200 bg-white p-3.5 hover:border-teal-400 transition-all"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 text-sm truncate">{h.nombre}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {h.rut} · Ingreso {fmtDate(h.fechaHospitalizacion)} → Alta {fmtDate(h.cierre?.fechaAlta)}
+                    </div>
+                  </div>
+                  <Pill tone={h.cierre?.presentoIAAS === "SI" ? "red" : "green"}>
+                    {h.cierre?.presentoIAAS === "SI" ? "Presentó IAAS" : "Sin IAAS"}
+                  </Pill>
+                </div>
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Formulario: Nueva ficha / activación                                    */
+/* ---------------------------------------------------------------------- */
+
+function CateteresCVCEditor({ cateteres, onChange }) {
+  const addCateter = () => onChange([...cateteres, newCateterCVC()]);
+  const updateCateter = (id, patch) => onChange(cateteres.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  const removeCateter = (id) => onChange(cateteres.filter((c) => c.id !== id));
+
+  return (
+    <div className="space-y-2">
+      {cateteres.map((c, idx) => (
+        <div key={c.id} className="rounded-lg border border-slate-200 p-3 space-y-2 bg-slate-50">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">
+              Catéter #{idx + 1} {c.fechaRetiro ? "· retirado" : ""}
+            </span>
+            <button type="button" onClick={() => removeCateter(c.id)} className="text-rose-600">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Tipo de catéter">
+              <Select value={c.tipo} onChange={(e) => updateCateter(c.id, { tipo: e.target.value })}>
+                {TIPOS_CVC.map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Ubicación / lado">
+              <TextInput value={c.ubicacion} onChange={(e) => updateCateter(c.id, { ubicacion: e.target.value })} placeholder="Ej. derecho" />
+            </Field>
+            <Field label="Fecha instalación">
+              <TextInput
+                type="date"
+                value={c.fechaInstalacion}
+                onChange={(e) => updateCateter(c.id, { fechaInstalacion: e.target.value })}
+              />
+            </Field>
+            <Field label="Fecha retiro (si aplica)">
+              <TextInput type="date" value={c.fechaRetiro} onChange={(e) => updateCateter(c.id, { fechaRetiro: e.target.value })} />
+            </Field>
+          </div>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={c.nutricionParenteral}
+              onChange={(e) => updateCateter(c.id, { nutricionParenteral: e.target.checked })}
+              className="h-4 w-4 accent-teal-700"
+            />
+            <span className="text-sm text-slate-700">En uso para nutrición parenteral</span>
+          </label>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addCateter}
+        className="flex items-center gap-1.5 text-sm font-semibold text-teal-700 hover:underline"
+      >
+        <Plus size={14} /> Agregar catéter CVC
+      </button>
+      {cateteres.length === 0 && <p className="text-xs text-slate-400">Sin catéteres CVC registrados.</p>}
+    </div>
+  );
+}
+
+function NuevaFichaForm({ hospitalizaciones, onCancel, onCreate }) {
+  const [form, setForm] = useState(newHospitalizacion());
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const historialPrevio = useMemo(() => {
+    if (!form.rut || form.rut.trim().length < 4) return [];
+    return hospitalizaciones.filter(
+      (h) => h.rut.trim().toLowerCase() === form.rut.trim().toLowerCase() && h.estado === "cerrado"
+    );
+  }, [form.rut, hospitalizaciones]);
+
+  const puedeGuardar = form.nombre.trim() && form.rut.trim();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+          <ArrowLeft size={18} />
+        </button>
+        <h1 className="text-lg font-bold text-slate-800">Activar ficha de vigilancia</h1>
+      </div>
+
+      {historialPrevio.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800 flex gap-2">
+          <History size={15} className="shrink-0 mt-0.5" />
+          <span>
+            Este RUT tiene <b>{historialPrevio.length}</b> ingreso(s) anterior(es) archivado(s) en el histórico. Se abrirá un
+            expediente en blanco para este nuevo ingreso — el historial previo queda intacto.
+          </span>
+        </div>
+      )}
+
+      <SectionCard icon={ClipboardList} title="Datos de cabecera">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Nombre" className="col-span-2">
+            <TextInput value={form.nombre} onChange={(e) => set("nombre", e.target.value)} placeholder="Nombre completo" />
+          </Field>
+          <Field label="RUT">
+            <TextInput value={form.rut} onChange={(e) => set("rut", e.target.value)} placeholder="12.345.678-9" />
+          </Field>
+          <Field label="Edad">
+            <TextInput value={form.edad} onChange={(e) => set("edad", e.target.value)} placeholder="Años" />
+          </Field>
+          <Field label="Previsión">
+            <TextInput value={form.prevision} onChange={(e) => set("prevision", e.target.value)} />
+          </Field>
+          <Field label="Servicio clínico">
+            <Select value={form.servicio} onChange={(e) => set("servicio", e.target.value)}>
+              {SERVICIOS.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Cama">
+            <TextInput value={form.cama} onChange={(e) => set("cama", e.target.value)} />
+          </Field>
+          <Field label="Fecha hospitalización">
+            <TextInput type="date" value={form.fechaHospitalizacion} onChange={(e) => set("fechaHospitalizacion", e.target.value)} />
+          </Field>
+          <Field label="Fecha ingreso vigilancia">
+            <TextInput type="date" value={form.fechaIngresoVigilancia} onChange={(e) => set("fechaIngresoVigilancia", e.target.value)} />
+          </Field>
+          <Field label="Diagnóstico de ingreso" className="col-span-2">
+            <TextArea value={form.diagnostico} onChange={(e) => set("diagnostico", e.target.value)} />
+          </Field>
+          <Field label="Antecedentes mórbidos" className="col-span-2">
+            <TextArea value={form.antecedentes} onChange={(e) => set("antecedentes", e.target.value)} />
+          </Field>
+          <Field label="Tipo de aislamiento">
+            <TextInput value={form.tipoAislamiento} onChange={(e) => set("tipoAislamiento", e.target.value)} />
+          </Field>
+          <Field label="Agentes IAAS y resistencia">
+            <TextInput value={form.agentesIAAS} onChange={(e) => set("agentesIAAS", e.target.value)} />
+          </Field>
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={Syringe} title="Dispositivos invasivos (DIP)" subtitle="Fecha de instalación y ubicación">
+        <div className="space-y-3">
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="mb-2">
+              <span className="text-sm font-semibold text-slate-700">CVC</span>
+              <span className="text-xs text-slate-400 ml-2">Catéter venoso central — puede haber más de uno simultáneo</span>
+            </div>
+            <CateteresCVCEditor
+              cateteres={form.dip.cvc.cateteres}
+              onChange={(list) => set("dip", { ...form.dip, cvc: { cateteres: list } })}
+            />
+          </div>
+          {DISPOSITIVOS.filter((d) => d.key !== "cvc").map((d) => (
+            <div key={d.key} className="rounded-lg border border-slate-200 p-3">
+              <label className="flex items-center gap-2 mb-2">
+                <input
+                  type="checkbox"
+                  checked={form.dip[d.key].instalado}
+                  onChange={(e) =>
+                    set("dip", { ...form.dip, [d.key]: { ...form.dip[d.key], instalado: e.target.checked } })
+                  }
+                  className="h-4 w-4 accent-teal-700"
+                />
+                <span className="text-sm font-semibold text-slate-700">{d.label}</span>
+                <span className="text-xs text-slate-400">{d.full}</span>
+              </label>
+              {form.dip[d.key].instalado && (
+                <div className="grid grid-cols-2 gap-2 pl-6">
+                  <Field label="Fecha instalación">
+                    <TextInput
+                      type="date"
+                      value={form.dip[d.key].fechaInstalacion}
+                      onChange={(e) => set("dip", { ...form.dip, [d.key]: { ...form.dip[d.key], fechaInstalacion: e.target.value } })}
+                    />
+                  </Field>
+                  <Field label="Ubicación">
+                    <TextInput
+                      value={form.dip[d.key].ubicacion}
+                      onChange={(e) => set("dip", { ...form.dip, [d.key]: { ...form.dip[d.key], ubicacion: e.target.value } })}
+                    />
+                  </Field>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <div className="flex gap-2 pb-4">
+        <button onClick={onCancel} className="flex-1 rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5">
+          Cancelar
+        </button>
+        <button
+          disabled={!puedeGuardar}
+          onClick={() => onCreate(form)}
+          className="flex-[2] rounded-lg bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold text-sm py-2.5 flex items-center justify-center gap-1.5"
+        >
+          <Save size={15} /> Activar ficha
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Formulario: nueva evolución (visita)                                    */
+/* ---------------------------------------------------------------------- */
+
+function ElementoToggle({ texto, estado, fecha, onChange }) {
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-sm text-slate-700 flex-1">{texto}</span>
+        <div className="flex gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => onChange({ estado: "no_presenta", fecha: "" })}
+            className={`text-[11px] rounded-full px-2 py-1 border font-semibold ${
+              estado === "no_presenta" ? "bg-emerald-600 text-white border-emerald-600" : "border-slate-300 text-slate-500"
+            }`}
+          >
+            No presenta
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ estado: "presente", fecha: fecha || todayISO() })}
+            className={`text-[11px] rounded-full px-2 py-1 border font-semibold ${
+              estado === "presente" ? "bg-rose-600 text-white border-rose-600" : "border-slate-300 text-slate-500"
+            }`}
+          >
+            Presente
+          </button>
+        </div>
+      </div>
+      {estado === "presente" && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <span className="text-[11px] text-slate-500">Fecha del elemento:</span>
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => onChange({ estado: "presente", fecha: e.target.value })}
+            className="text-xs rounded-md border border-slate-300 px-2 py-1"
+          />
+        </div>
+      )}
+      {estado === "no_revisado" && <span className="text-[10px] text-amber-600 mt-1 inline-block">Sin revisar</span>}
+    </div>
+  );
+}
+
+function GrupoElementos({ grupo, estados, onToggle, hospitalizacion }) {
+  const visibles = grupo.elementos.filter(
+    (el) => !ELEMENTOS_COMPARTIDOS_IDS.includes(el.id) && elementoAplicable(el.id, hospitalizacion)
+  );
+  if (visibles.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{grupo.titulo}</p>
+      <div className="space-y-1.5">
+        {visibles.map((el) => (
+          <ElementoToggle
+            key={el.id}
+            texto={el.texto}
+            estado={estados[el.id]?.estado || "no_revisado"}
+            fecha={estados[el.id]?.fecha || ""}
+            onChange={(patch) => onToggle(el.id, patch)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CriteriosFocoSection({ focoKey, estados, onUpdate, hospitalizacion }) {
+  const foco = CRITERIOS_FOCOS[focoKey];
+  const idsVisibles = gruposDeFoco(foco)
+    .flatMap((g) => foco[g].elementos)
+    .filter((el) => !ELEMENTOS_COMPARTIDOS_IDS.includes(el.id) && elementoAplicable(el.id, hospitalizacion))
+    .map((el) => el.id);
+  const sinRevisar = idsVisibles.filter((id) => (estados[id]?.estado || "no_revisado") === "no_revisado").length;
+  return (
+    <SectionCard icon={FileWarning} title={`Elementos IAAS — ${foco.label}`} subtitle={foco.foco}>
+      {sinRevisar > 0 && (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+          {sinRevisar} elemento(s) sin revisar en esta visita.
+        </p>
+      )}
+      {gruposDeFoco(foco).map((g) => (
+        <GrupoElementos
+          key={g}
+          grupo={foco[g]}
+          estados={estados}
+          hospitalizacion={hospitalizacion}
+          onToggle={(id, patch) => onUpdate({ ...estados, [id]: { ...estados[id], ...patch } })}
+        />
+      ))}
+    </SectionCard>
+  );
+}
+
+function SeccionSignosGenerales({ estados, onUpdate }) {
+  return (
+    <SectionCard icon={AlertTriangle} title="Signos generales" subtitle="Se pregunta una sola vez y aplica a todos los dispositivos activos">
+      <div className="space-y-1.5">
+        {ELEMENTOS_COMPARTIDOS_IDS.map((id) => (
+          <ElementoToggle
+            key={id}
+            texto={ELEMENTOS_COMPARTIDOS[id].texto}
+            estado={estados[id]?.estado || "no_revisado"}
+            fecha={estados[id]?.fecha || ""}
+            onChange={(patch) => onUpdate({ ...estados, [id]: { ...estados[id], ...patch } })}
+          />
+        ))}
+      </div>
+    </SectionCard>
+  );
+}
+
+function EvolucionForm({ hospitalizacion, onCancel, onSave }) {
+  const [ev, setEv] = useState(emptyEvolucion());
+  const [criterios, setCriterios] = useState(() => ensureCriteriosIAAS(hospitalizacion));
+  const [errorFechas, setErrorFechas] = useState([]);
+
+  const setSintoma = (key, patch) =>
+    setEv((e) => ({ ...e, sintomas: { ...e.sintomas, [key]: { ...e.sintomas[key], ...patch } } }));
+
+  const validar = () => {
+    const faltantes = SINTOMAS.filter((s) => ev.sintomas[s.key].presente && !ev.sintomas[s.key].fecha).map((s) => s.label);
+    setErrorFechas(faltantes);
+    return faltantes.length === 0;
+  };
+
+  const guardar = () => {
+    if (!validar()) return;
+    onSave({ ...ev, criteriosRevisados: criterios }, criterios);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h1 className="text-lg font-bold text-slate-800">Registrar visita</h1>
+          <p className="text-xs text-slate-500">{hospitalizacion.nombre}</p>
+        </div>
+      </div>
+
+      <Field label="Fecha de la visita">
+        <TextInput type="date" value={ev.fecha} onChange={(e) => setEv({ ...ev, fecha: e.target.value })} className="max-w-[180px]" />
+      </Field>
+
+      {Object.keys(criterios).length > 0 && (
+        <div className="space-y-3">
+          {criterios.compartidos && (
+            <SeccionSignosGenerales
+              estados={criterios.compartidos}
+              onUpdate={(next) => setCriterios((c) => ({ ...c, compartidos: next }))}
+            />
+          )}
+          {Object.keys(criterios)
+            .filter((k) => k !== "compartidos")
+            .map((focoKey) => (
+              <CriteriosFocoSection
+                key={focoKey}
+                focoKey={focoKey}
+                estados={criterios[focoKey]}
+                hospitalizacion={hospitalizacion}
+                onUpdate={(next) => setCriterios((c) => ({ ...c, [focoKey]: next }))}
+              />
+            ))}
+        </div>
+      )}
+
+      <SectionCard icon={Droplet} title="Exámenes de laboratorio" defaultOpen={false}>
+        <div className="grid grid-cols-2 gap-3">
+          {EXAMENES.map((ex) => (
+            <Field key={ex.key} label={`${ex.label} (${ex.unit})`}>
+              <TextInput value={ev.examenes[ex.key]} onChange={(e) => setEv({ ...ev, examenes: { ...ev.examenes, [ex.key]: e.target.value } })} />
+            </Field>
+          ))}
+        </div>
+        <div className="pt-1 border-t border-slate-100">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2 mt-2">Sedimento de orina</p>
+          <div className="grid grid-cols-2 gap-3">
+            {SEDIMENTO.map((s) => (
+              <Field key={s.key} label={s.label}>
+                <TextInput
+                  value={ev.sedimentoOrina[s.key]}
+                  onChange={(e) => setEv({ ...ev, sedimentoOrina: { ...ev.sedimentoOrina, [s.key]: e.target.value } })}
+                />
+              </Field>
+            ))}
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={ClipboardList} title="Cultivos" subtitle="Marca “pendiente” si aún no hay resultado" defaultOpen={false}>
+        <div className="space-y-2.5">
+          {CULTIVOS.map((c) => (
+            <div key={c.key} className="flex gap-2 items-start">
+              <div className="flex-1">
+                <Field label={c.label}>
+                  <TextInput
+                    value={ev.cultivos[c.key].resultado}
+                    onChange={(e) =>
+                      setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], resultado: e.target.value } } })
+                    }
+                    placeholder={ev.cultivos[c.key].pendiente ? "(p) pendiente" : "Resultado / MO aislado"}
+                  />
+                </Field>
+              </div>
+              <label className="flex items-center gap-1.5 mt-6 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={ev.cultivos[c.key].pendiente}
+                  onChange={(e) =>
+                    setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], pendiente: e.target.checked } } })
+                  }
+                  className="h-4 w-4 accent-amber-600"
+                />
+                <span className="text-xs text-slate-500">(p)</span>
+              </label>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-3 pt-2 border-t border-slate-100 mt-2">
+          <Field label="Informe de imagen de tórax">
+            <TextArea
+              value={ev.imagenes.torax}
+              onChange={(e) => setEv({ ...ev, imagenes: { ...ev.imagenes, torax: e.target.value } })}
+              placeholder="Pega o dicta el informe completo del radiólogo…"
+            />
+          </Field>
+          <Field label="Otros informes de imagen">
+            <TextArea
+              value={ev.imagenes.otros}
+              onChange={(e) => setEv({ ...ev, imagenes: { ...ev.imagenes, otros: e.target.value } })}
+              placeholder="TAC, ecografía, etc…"
+            />
+          </Field>
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={AlertTriangle} title="Signos y síntomas" subtitle="Fecha obligatoria si está presente">
+        <div className="space-y-2">
+          {SINTOMAS.map((s) => (
+            <div key={s.key} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+              <button type="button" onClick={() => setSintoma(s.key, { presente: !ev.sintomas[s.key].presente })} className="shrink-0">
+                {ev.sintomas[s.key].presente ? (
+                  <CheckCircle2 size={19} className="text-rose-600" />
+                ) : (
+                  <Circle size={19} className="text-slate-300" />
+                )}
+              </button>
+              <span className="text-sm text-slate-700 flex-1">{s.label}</span>
+              {ev.sintomas[s.key].presente && (
+                <input
+                  type="date"
+                  value={ev.sintomas[s.key].fecha}
+                  onChange={(e) => setSintoma(s.key, { fecha: e.target.value })}
+                  className={`text-xs rounded-md border px-2 py-1 w-[130px] ${
+                    errorFechas.includes(s.label) ? "border-rose-400 ring-1 ring-rose-300" : "border-slate-300"
+                  }`}
+                />
+              )}
+            </div>
+          ))}
+          {errorFechas.length > 0 && (
+            <p className="text-xs text-rose-600 flex items-center gap-1">
+              <FileWarning size={13} /> Falta fecha en: {errorFechas.join(", ")}
+            </p>
+          )}
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={Syringe} title="Estado de dispositivos invasivos">
+        <div className="space-y-2">
+          {cateteresCVCActivos(hospitalizacion).length > 0 && (
+            <div className="rounded-lg border border-slate-200 px-3 py-2">
+              <div className="text-sm font-semibold text-slate-700 mb-1">
+                CVC — {cateteresCVCActivos(hospitalizacion).length} catéter(es) activo(s)
+              </div>
+              <div className="space-y-1">
+                {cateteresCVCActivos(hospitalizacion).map((c) => (
+                  <div key={c.id} className="text-xs text-slate-500 flex items-center justify-between">
+                    <span>
+                      {c.tipo}
+                      {c.ubicacion ? ` · ${c.ubicacion}` : ""}
+                      {c.nutricionParenteral ? " · NPT" : ""}
+                    </span>
+                    <span>desde {fmtDate(c.fechaInstalacion)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Agrega, edita o retira catéteres desde la ficha del paciente.</p>
+            </div>
+          )}
+          {DISPOSITIVOS.filter((d) => d.key !== "cvc" && hospitalizacion.dip[d.key]?.instalado).map((d) => (
+            <label key={d.key} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={ev.dipEstado[d.key]}
+                onChange={(e) => setEv({ ...ev, dipEstado: { ...ev.dipEstado, [d.key]: e.target.checked } })}
+                className="h-4 w-4 accent-teal-700"
+              />
+              <span className="text-sm text-slate-700">{d.label} sigue instalado</span>
+              <span className="text-xs text-slate-400 ml-auto">
+                desde {fmtDate(hospitalizacion.dip[d.key].fechaInstalacion)}
+              </span>
+            </label>
+          ))}
+          {cateteresCVCActivos(hospitalizacion).length === 0 && DISPOSITIVOS.every((d) => d.key === "cvc" || !hospitalizacion.dip[d.key]?.instalado) && (
+            <p className="text-xs text-slate-400">Este paciente no tiene DIP registrado.</p>
+          )}
+        </div>
+        <Field label="Antibióticos actuales">
+          <TextInput value={ev.antibioticos} onChange={(e) => setEv({ ...ev, antibioticos: e.target.value })} />
+        </Field>
+      </SectionCard>
+
+      <SectionCard icon={ClipboardList} title="Comentario de la visita" defaultOpen={false}>
+        <TextArea
+          value={ev.comentario}
+          onChange={(e) => setEv({ ...ev, comentario: e.target.value })}
+          placeholder="Observaciones libres…"
+        />
+      </SectionCard>
+
+      <div className="flex gap-2 pb-4">
+        <button onClick={onCancel} className="flex-1 rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5">
+          Cancelar
+        </button>
+        <button
+          onClick={guardar}
+          className="flex-[2] rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm py-2.5 flex items-center justify-center gap-1.5"
+        >
+          <Save size={15} /> Guardar visita
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Detalle de ficha                                                        */
+/* ---------------------------------------------------------------------- */
+
+function ResumenSintomasEvolucion({ ev }) {
+  const activos = SINTOMAS.filter((s) => ev.sintomas[s.key]?.presente);
+  const examenesLlenos = EXAMENES.filter((e) => ev.examenes[e.key]);
+  const elementosPresentes = [];
+  const compartidosVistos = new Set();
+  Object.keys(ev.criteriosRevisados || {})
+    .filter((k) => k !== "compartidos")
+    .forEach((focoKey) => {
+      const foco = CRITERIOS_FOCOS[focoKey];
+      if (!foco) return;
+      const estados = ev.criteriosRevisados[focoKey];
+      const compartidos = ev.criteriosRevisados.compartidos || {};
+      gruposDeFoco(foco).forEach((g) => {
+        foco[g].elementos.forEach((el) => {
+          const esCompartido = ELEMENTOS_COMPARTIDOS_IDS.includes(el.id);
+          const estado = esCompartido ? compartidos[el.id] : estados[el.id];
+          if (estado?.estado !== "presente") return;
+          if (esCompartido) {
+            if (compartidosVistos.has(el.id)) return;
+            compartidosVistos.add(el.id);
+            elementosPresentes.push({ key: `compartido-${el.id}`, texto: el.texto, fecha: estado.fecha });
+          } else {
+            elementosPresentes.push({ key: `${focoKey}-${el.id}`, texto: `${foco.label}: ${el.texto}`, fecha: estado.fecha });
+          }
+        });
+      });
+    });
+  return (
+    <div className="space-y-1.5">
+      {elementosPresentes.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {elementosPresentes.map((e) => (
+            <span key={e.key} className="text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 rounded px-1.5 py-0.5">
+              {e.texto} · {fmtDate(e.fecha)}
+            </span>
+          ))}
+        </div>
+      )}
+      {activos.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {activos.map((s) => (
+            <span key={s.key} className="text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">
+              {s.label} · {fmtDate(ev.sintomas[s.key].fecha)}
+            </span>
+          ))}
+        </div>
+      )}
+      {examenesLlenos.length > 0 && (
+        <div className="text-xs text-slate-600">
+          {examenesLlenos.map((e) => `${e.label} ${ev.examenes[e.key]}`).join(" · ")}
+        </div>
+      )}
+      {ev.imagenes?.torax && (
+        <div className="text-xs text-slate-600">
+          <span className="font-semibold">Img. tórax:</span> {ev.imagenes.torax}
+        </div>
+      )}
+      {ev.imagenes?.otros && (
+        <div className="text-xs text-slate-600">
+          <span className="font-semibold">Otras imágenes:</span> {ev.imagenes.otros}
+        </div>
+      )}
+      {ev.antibioticos && <div className="text-xs text-slate-600">ATB: {ev.antibioticos}</div>}
+      {ev.comentario && <div className="text-xs text-slate-500 italic">"{ev.comentario}"</div>}
+      {elementosPresentes.length === 0 && activos.length === 0 && examenesLlenos.length === 0 && !ev.imagenes?.torax && !ev.imagenes?.otros && !ev.antibioticos && !ev.comentario && (
+        <div className="text-xs text-slate-400">Visita sin hallazgos relevantes registrados.</div>
+      )}
+    </div>
+  );
+}
+
+function CierreForm({ hospitalizacion, onCancel, onConfirm }) {
+  const [fechaAlta, setFechaAlta] = useState(todayISO());
+  const [presentoIAAS, setPresentoIAAS] = useState("");
+  const [obs, setObs] = useState("");
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="font-bold text-slate-800">Cerrar ficha de vigilancia</h2>
+          <button onClick={onCancel}><X size={18} className="text-slate-400" /></button>
+        </div>
+        <Field label="Fecha de alta / egreso">
+          <TextInput type="date" value={fechaAlta} onChange={(e) => setFechaAlta(e.target.value)} />
+        </Field>
+        <Field label="Categorización — obligatoria">
+          <div className="flex gap-2 mt-1">
+            {["SI", "NO"].map((v) => (
+              <button
+                key={v}
+                onClick={() => setPresentoIAAS(v)}
+                className={`flex-1 rounded-lg border py-2.5 text-sm font-semibold ${
+                  presentoIAAS === v
+                    ? v === "SI"
+                      ? "bg-rose-600 text-white border-rose-600"
+                      : "bg-emerald-600 text-white border-emerald-600"
+                    : "border-slate-300 text-slate-600"
+                }`}
+              >
+                {v === "SI" ? "Presentó IAAS" : "No presentó IAAS"}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Observaciones de cierre">
+          <TextArea value={obs} onChange={(e) => setObs(e.target.value)} />
+        </Field>
+        <div className="flex gap-2 pt-1">
+          <button onClick={onCancel} className="flex-1 rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5">
+            Cancelar
+          </button>
+          <button
+            disabled={!presentoIAAS}
+            onClick={() => onConfirm({ fechaAlta, presentoIAAS, obs })}
+            className="flex-[2] rounded-lg bg-slate-800 disabled:bg-slate-300 text-white font-semibold text-sm py-2.5"
+          >
+            Confirmar cierre
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Ficha de Notificación IAAS                                              */
+/* ---------------------------------------------------------------------- */
+
+function toggleCriterio(list, criterio) {
+  return list.includes(criterio) ? list.filter((c) => c !== criterio) : [...list, criterio];
+}
+
+function CriteriosChecklist({ criterios, marcados, onToggle }) {
+  if (!criterios.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      {criterios.map((c) => {
+        const activo = marcados.includes(c);
+        return (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onToggle(c)}
+            className={`text-[11px] rounded-full px-2.5 py-1 border font-medium transition-colors ${
+              activo ? "bg-rose-600 text-white border-rose-600" : "bg-white text-slate-600 border-slate-300"
+            }`}
+          >
+            {c}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
+  const [n, setN] = useState(notificacion || newNotificacion(hospitalizacion));
+
+  const setDip = (key, patch) => setN((s) => ({ ...s, dip: { ...s.dip, [key]: { ...s.dip[key], ...patch } } }));
+  const setCx = (key, patch) => setN((s) => ({ ...s, cirugias: { ...s.cirugias, [key]: { ...s.cirugias[key], ...patch } } }));
+  const setAr = (key, patch) => setN((s) => ({ ...s, arepi: { ...s.arepi, [key]: { ...s.arepi[key], ...patch } } }));
+
+  const puedeGuardar = n.diagnosticoIAAS.trim() && n.confirmacion;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h1 className="text-lg font-bold text-slate-800">Ficha de notificación IAAS</h1>
+          <p className="text-xs text-slate-500">{hospitalizacion.nombre}</p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-teal-200 bg-teal-50 px-3.5 py-2.5 text-xs text-teal-800">
+        Los datos demográficos, fechas y dispositivos se autocompletaron desde la ficha de vigilancia. Solo revisa y completa lo
+        que falta.
+      </div>
+
+      <SectionCard icon={ClipboardList} title="Datos generales">
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div><span className="text-slate-400 text-xs">Nombre:</span> {n.nombre}</div>
+          <div><span className="text-slate-400 text-xs">Edad:</span> {n.edad || "—"}</div>
+          <div><span className="text-slate-400 text-xs">RUT:</span> {n.rut}</div>
+          <div><span className="text-slate-400 text-xs">Previsión:</span> {n.prevision || "—"}</div>
+          <div><span className="text-slate-400 text-xs">Servicio:</span> {n.servicio}</div>
+          <div><span className="text-slate-400 text-xs">Días estadía:</span> {n.diasEstadia}</div>
+          <div><span className="text-slate-400 text-xs">F. ingreso:</span> {fmtDate(n.fechaIngreso)}</div>
+          <div><span className="text-slate-400 text-xs">F. egreso:</span> {fmtDate(n.fechaEgreso) || "En curso"}</div>
+        </div>
+        <Field label="Fecha de notificación">
+          <TextInput type="date" value={n.fechaNotificacion} onChange={(e) => setN({ ...n, fechaNotificacion: e.target.value })} className="max-w-[180px]" />
+        </Field>
+        <Field label="Diagnóstico de ingreso">
+          <TextInput value={n.diagnosticoIngreso} onChange={(e) => setN({ ...n, diagnosticoIngreso: e.target.value })} />
+        </Field>
+        <Field label="Diagnóstico IAAS — obligatorio">
+          <TextInput value={n.diagnosticoIAAS} onChange={(e) => setN({ ...n, diagnosticoIAAS: e.target.value })} placeholder="Ej. ITU asociada a CUP" />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Falleció">
+            <div className="flex gap-2 mt-1">
+              {["SI", "NO"].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setN({ ...n, fallecio: v })}
+                  className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold ${
+                    n.fallecio === v ? "bg-slate-800 text-white border-slate-800" : "border-slate-300 text-slate-600"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Categoría">
+            <TextInput value={n.categoria} onChange={(e) => setN({ ...n, categoria: e.target.value })} />
+          </Field>
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={Syringe} title="Factores de riesgo asociados a DIP" defaultOpen={false}>
+        <p className="text-xs text-slate-500 -mt-1 mb-1">
+          Los criterios se completan automáticamente desde los elementos marcados "Presente" en la Ficha de Vigilancia.
+        </p>
+        <div className="space-y-3">
+          {Object.entries(CRITERIOS_FOCOS).map(([key, foco]) => (
+            <div key={key} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-700">{foco.label}</span>
+                <div className="flex gap-1.5">
+                  {["SI", "NO"].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setDip(key, { siNo: v })}
+                      className={`text-xs rounded-full px-2.5 py-1 border font-semibold ${
+                        n.dip[key].siNo === v ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-500"
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {n.dip[key].siNo === "SI" && (
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Días calendario">
+                      <TextInput value={n.dip[key].diasCalendario} onChange={(e) => setDip(key, { diasCalendario: e.target.value })} />
+                    </Field>
+                    <Field label="MO aislado">
+                      <TextInput value={n.dip[key].mo} onChange={(e) => setDip(key, { mo: e.target.value })} />
+                    </Field>
+                  </div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Elementos presentes (con fecha de aparición)
+                  </p>
+                  {n.dip[key].criteriosMarcados.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {n.dip[key].criteriosMarcados.map((c) => (
+                        <span key={c} className="text-[11px] rounded-full px-2.5 py-1 bg-rose-600 text-white font-medium">
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      Sin elementos marcados "Presente" aún en la ficha de vigilancia para este dispositivo.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={ClipboardList} title="Cirugías / procedimientos trazadores" defaultOpen={false}>
+        <div className="space-y-3">
+          {CIRUGIAS_TRAZADORAS.map((c) => (
+            <div key={c.key} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-700">{c.label}</span>
+                <div className="flex gap-1.5">
+                  {["SI", "NO"].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setCx(c.key, { siNo: v })}
+                      className={`text-xs rounded-full px-2.5 py-1 border font-semibold ${
+                        n.cirugias[c.key].siNo === v ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-500"
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {n.cirugias[c.key].siNo === "SI" && (
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Fecha cirugía/procedimiento">
+                      <TextInput type="date" value={n.cirugias[c.key].fecha} onChange={(e) => setCx(c.key, { fecha: e.target.value })} />
+                    </Field>
+                    <Field label="MO aislado">
+                      <TextInput value={n.cirugias[c.key].mo} onChange={(e) => setCx(c.key, { mo: e.target.value })} />
+                    </Field>
+                  </div>
+                  {c.criterios.length > 0 && (
+                    <>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Criterios de confirmación</p>
+                      <CriteriosChecklist
+                        criterios={c.criterios}
+                        marcados={n.cirugias[c.key].criteriosMarcados}
+                        onToggle={(v) => setCx(c.key, { criteriosMarcados: toggleCriterio(n.cirugias[c.key].criteriosMarcados, v) })}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={AlertTriangle} title="Agentes de Riesgo Epidémico (AREpi)" defaultOpen={false}>
+        <div className="space-y-3">
+          {AREPI_LIST.map((a) => (
+            <div key={a.key} className="rounded-lg border border-slate-200 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-700">{a.label}</span>
+                <div className="flex gap-1.5">
+                  {["SI", "NO"].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setAr(a.key, { siNo: v })}
+                      className={`text-xs rounded-full px-2.5 py-1 border font-semibold ${
+                        n.arepi[a.key].siNo === v ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-500"
+                      }`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {n.arepi[a.key].siNo === "SI" && (
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Fecha inicio síntomas">
+                      <TextInput type="date" value={n.arepi[a.key].fechaInicioSintomas} onChange={(e) => setAr(a.key, { fechaInicioSintomas: e.target.value })} />
+                    </Field>
+                    <Field label="Servicio (inicio síntomas)">
+                      <TextInput value={n.arepi[a.key].servicio} onChange={(e) => setAr(a.key, { servicio: e.target.value })} />
+                    </Field>
+                  </div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Criterios de confirmación</p>
+                  <CriteriosChecklist
+                    criterios={a.criterios}
+                    marcados={n.arepi[a.key].criteriosMarcados}
+                    onToggle={(v) => setAr(a.key, { criteriosMarcados: toggleCriterio(n.arepi[a.key].criteriosMarcados, v) })}
+                  />
+                  <Field label="Cultivo / examen de confirmación">
+                    <TextInput value={n.arepi[a.key].cultivoConfirmacion} onChange={(e) => setAr(a.key, { cultivoConfirmacion: e.target.value })} />
+                  </Field>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={ClipboardList} title="Resumen de historia clínica" defaultOpen={false}>
+        <TextArea value={n.resumenClinico} onChange={(e) => setN({ ...n, resumenClinico: e.target.value })} placeholder="Síntesis para el comité…" />
+      </SectionCard>
+
+      <SectionCard icon={CheckCircle2} title="Resolución del comité">
+        <p className="text-xs text-slate-500 -mt-1 mb-1">Se define tras la junta médica con Enfermera IAAS y Médico IAAS.</p>
+        <div className="flex gap-2">
+          {["SI", "NO", "NO CONCLUYENTE"].map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setN({ ...n, confirmacion: v })}
+              className={`flex-1 rounded-lg border py-2.5 text-xs font-bold ${
+                n.confirmacion === v
+                  ? v === "SI"
+                    ? "bg-rose-600 text-white border-rose-600"
+                    : v === "NO"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-amber-500 text-white border-amber-500"
+                  : "border-slate-300 text-slate-600"
+              }`}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-2 mt-3">
+          <Field label="Enfermera IAAS (nombre)">
+            <TextInput
+              value={n.enfermeraIAAS || ""}
+              onChange={(e) => setN({ ...n, enfermeraIAAS: e.target.value })}
+              placeholder="Ej: EU Susan Valdés R."
+            />
+          </Field>
+          <Field label="Médico IAAS (nombre)">
+            <TextInput
+              value={n.medicoIAAS || ""}
+              onChange={(e) => setN({ ...n, medicoIAAS: e.target.value })}
+              placeholder="Nombre del médico IAAS"
+            />
+          </Field>
+        </div>
+      </SectionCard>
+
+      <div className="flex gap-2 pb-4">
+        <button onClick={onCancel} className="flex-1 rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5">
+          Cancelar
+        </button>
+        <button
+          disabled={!puedeGuardar}
+          onClick={() => onSave(n)}
+          className="flex-[2] rounded-lg bg-teal-700 hover:bg-teal-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-semibold text-sm py-2.5 flex items-center justify-center gap-1.5"
+        >
+          <Save size={15} /> Guardar notificación
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NotificacionPrintView({ notificacion: n, onClose }) {
+  const dipActivos = Object.entries(n.dip).filter(([, v]) => v.siNo === "SI");
+  const cxActivas = CIRUGIAS_TRAZADORAS.filter((c) => n.cirugias[c.key].siNo === "SI");
+  const arepiActivos = AREPI_LIST.filter((a) => n.arepi[a.key].siNo === "SI");
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
+      <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
+          <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de notificación IAAS</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+              Imprimir / Guardar PDF
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div id="print-area" className="p-6 text-sm text-slate-800">
+          <div className="text-center mb-4">
+            <div className="font-bold text-base">FICHA DE NOTIFICACIÓN IAAS</div>
+            <div className="text-xs text-slate-500">Hospital del Cobre · Dr. Salvador Allende — Calama</div>
+            <div className="text-xs text-slate-500">Fecha de notificación: {fmtDate(n.fechaNotificacion)}</div>
+          </div>
+
+          <table className="w-full border-collapse text-xs mb-3">
+            <tbody>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold w-1/4">Nombre</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.nombre}</td></tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">RUT</td><td className="border border-slate-300 px-2 py-1">{n.rut}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Edad</td><td className="border border-slate-300 px-2 py-1">{n.edad}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Previsión</td><td className="border border-slate-300 px-2 py-1">{n.prevision}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Servicio</td><td className="border border-slate-300 px-2 py-1">{n.servicio}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">F. ingreso</td><td className="border border-slate-300 px-2 py-1">{fmtDate(n.fechaIngreso)}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Días estadía</td><td className="border border-slate-300 px-2 py-1">{n.diasEstadia}</td>
+              </tr>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">F. egreso</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.fechaEgreso ? fmtDate(n.fechaEgreso) : "En curso"}</td></tr>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico ingreso</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.diagnosticoIngreso}</td></tr>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico IAAS</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.diagnosticoIAAS}</td></tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Falleció</td><td className="border border-slate-300 px-2 py-1">{n.fallecio || "—"}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Categoría</td><td className="border border-slate-300 px-2 py-1">{n.categoria || "—"}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {dipActivos.length > 0 && (
+            <div className="mb-3">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Factores de riesgo asociados a DIP</div>
+              {dipActivos.map(([key, v]) => (
+                <div key={key} className="text-xs mb-1.5">
+                  <b>{CRITERIOS_FOCOS[key].label}</b> — {v.diasCalendario} días · MO: {v.mo || "—"}
+                  <div className="text-slate-600">Criterios: {v.criteriosMarcados.join(", ") || "—"}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {cxActivas.length > 0 && (
+            <div className="mb-3">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Cirugías / procedimientos trazadores</div>
+              {cxActivas.map((c) => (
+                <div key={c.key} className="text-xs mb-1.5">
+                  <b>{c.label}</b> — {fmtDate(n.cirugias[c.key].fecha)} · MO: {n.cirugias[c.key].mo || "—"}
+                  <div className="text-slate-600">Criterios: {n.cirugias[c.key].criteriosMarcados.join(", ") || "—"}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {arepiActivos.length > 0 && (
+            <div className="mb-3">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Agentes de Riesgo Epidémico (AREpi)</div>
+              {arepiActivos.map((a) => (
+                <div key={a.key} className="text-xs mb-1.5">
+                  <b>{a.label}</b> — inicio síntomas {fmtDate(n.arepi[a.key].fechaInicioSintomas)} · {n.arepi[a.key].servicio}
+                  <div className="text-slate-600">Criterios: {n.arepi[a.key].criteriosMarcados.join(", ") || "—"}</div>
+                  <div className="text-slate-600">Confirmación: {n.arepi[a.key].cultivoConfirmacion || "—"}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {n.resumenClinico && (
+            <div className="mb-3">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Resumen historia clínica</div>
+              <div className="text-xs whitespace-pre-wrap">{n.resumenClinico}</div>
+            </div>
+          )}
+
+          <div className="mb-6">
+            <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Confirmación de caso IAAS</div>
+            <div className="flex gap-4 text-xs mt-1">
+              {["SI", "NO", "NO CONCLUYENTE"].map((v) => (
+                <span key={v} className="flex items-center gap-1">
+                  <span className={`inline-block w-3 h-3 border border-slate-500 ${n.confirmacion === v ? "bg-slate-800" : ""}`} />
+                  {v}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-8 mt-12 text-xs">
+            <div className="text-center">
+              <div className="h-5 font-semibold">{n.enfermeraIAAS || ""}</div>
+              <div className="border-t border-slate-500 pt-1">Firma Enfermera IAAS</div>
+            </div>
+            <div className="text-center">
+              <div className="h-5 font-semibold">{n.medicoIAAS || ""}</div>
+              <div className="border-t border-slate-500 pt-1">Firma Médico IAAS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AlertaAltaModal({ dias, nombre, onConfirmarAlta, onSigueHospitalizado }) {
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 space-y-4">
+        <div className="flex items-start gap-2.5">
+          <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="font-bold text-slate-800">Sin registro hace {dias} días</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              {nombre} lleva {dias} días sin una visita registrada. ¿Fue dado de alta o egresado?
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onConfirmarAlta}
+            className="rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-semibold text-sm py-2.5"
+          >
+            Sí, registrar alta ahora
+          </button>
+          <button
+            onClick={onSigueHospitalizado}
+            className="rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5"
+          >
+            No, sigue hospitalizado
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
+  const cateteres = h.dip?.cvc?.cateteres || [];
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
+      <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
+          <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de vigilancia epidemiológica</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+              Imprimir / Guardar PDF
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {h.estado === "cerrado" && (
+          <div className="mx-4 mt-3 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800 print:hidden">
+            Alta registrada. En el diálogo de impresión elige <b>"Guardar como PDF"</b> y archívalo en tu carpeta de altas
+            (sugerencia de nombre: <span className="font-mono">Alta_{h.nombre.replace(/\s+/g, "_")}_{fmtDate(h.cierre?.fechaAlta)}</span>).
+          </div>
+        )}
+
+        <div id="print-area" className="p-6 text-sm text-slate-800">
+          <div className="text-center mb-4">
+            <div className="font-bold text-base">FICHA DE VIGILANCIA EPIDEMIOLÓGICA IAAS</div>
+            <div className="text-xs text-slate-500">Hospital del Cobre · Dr. Salvador Allende — Calama</div>
+          </div>
+
+          <table className="w-full border-collapse text-xs mb-3">
+            <tbody>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold w-1/4">Nombre</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.nombre}</td></tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">RUT</td><td className="border border-slate-300 px-2 py-1">{h.rut}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Edad</td><td className="border border-slate-300 px-2 py-1">{h.edad}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Previsión</td><td className="border border-slate-300 px-2 py-1">{h.prevision}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Servicio / Cama</td><td className="border border-slate-300 px-2 py-1">{h.servicio} · {h.cama || "—"}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">F. hospitalización</td><td className="border border-slate-300 px-2 py-1">{fmtDate(h.fechaHospitalizacion)}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">F. ingreso vigilancia</td><td className="border border-slate-300 px-2 py-1">{fmtDate(h.fechaIngresoVigilancia)}</td>
+              </tr>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.diagnostico || "—"}</td></tr>
+              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Antecedentes mórbidos</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.antecedentes || "—"}</td></tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Tipo de aislamiento</td><td className="border border-slate-300 px-2 py-1">{h.tipoAislamiento || "—"}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Agentes IAAS</td><td className="border border-slate-300 px-2 py-1">{h.agentesIAAS || "—"}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className="mb-3">
+            <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Dispositivos invasivos</div>
+            {cateteres.length > 0 && (
+              <div className="text-xs mb-1">
+                <b>CVC:</b>{" "}
+                {cateteres
+                  .map((c) => `${c.tipo}${c.ubicacion ? ` (${c.ubicacion})` : ""} — ${fmtDate(c.fechaInstalacion)} a ${c.fechaRetiro ? fmtDate(c.fechaRetiro) : "en curso"}${c.nutricionParenteral ? " · NPT" : ""}`)
+                  .join("; ")}
+              </div>
+            )}
+            {DISPOSITIVOS.filter((d) => d.key !== "cvc" && h.dip[d.key]?.instalado).map((d) => (
+              <div key={d.key} className="text-xs mb-1">
+                <b>{d.label}:</b> {fmtDate(h.dip[d.key].fechaInstalacion)}
+                {h.dip[d.key].ubicacion ? ` · ${h.dip[d.key].ubicacion}` : ""}
+                {h.dip[d.key].fechaRetiro ? ` a ${fmtDate(h.dip[d.key].fechaRetiro)}` : " · en curso"}
+              </div>
+            ))}
+            {cateteres.length === 0 && DISPOSITIVOS.every((d) => d.key === "cvc" || !h.dip[d.key]?.instalado) && (
+              <div className="text-xs text-slate-500">Sin dispositivos invasivos registrados.</div>
+            )}
+          </div>
+
+          <div className="mb-3">
+            <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">
+              Matriz de evolución diaria ({h.evoluciones.length} visita{h.evoluciones.length !== 1 ? "s" : ""})
+            </div>
+            {[...h.evoluciones]
+              .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))
+              .map((ev) => (
+                <div key={ev.id} className="text-xs mb-2 border-b border-slate-100 pb-1.5">
+                  <div className="font-semibold">{fmtDate(ev.fecha)}</div>
+                  <ResumenSintomasEvolucion ev={ev} />
+                </div>
+              ))}
+            {h.evoluciones.length === 0 && <div className="text-xs text-slate-500">Sin visitas registradas.</div>}
+          </div>
+
+          {h.estado === "cerrado" && (
+            <div className="mb-3">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Cierre de vigilancia</div>
+              <div className="text-xs">
+                Fecha de alta: {fmtDate(h.cierre?.fechaAlta)} · {h.cierre?.presentoIAAS === "SI" ? "Presentó IAAS" : "No presentó IAAS"}
+              </div>
+              {h.cierre?.obs && <div className="text-xs text-slate-600 italic mt-1">"{h.cierre.obs}"</div>}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-8 mt-12 text-xs">
+            <div className="text-center">
+              <div className="h-5" />
+              <div className="border-t border-slate-500 pt-1">Firma Enfermera IAAS</div>
+            </div>
+            <div className="text-center">
+              <div className="h-5" />
+              <div className="border-t border-slate-500 pt-1">Firma Médico IAAS</div>
+            </div>
+          </div>
+          <div className="text-right text-[10px] text-slate-500 mt-6">Fecha de impresión: {fmtDate(todayISO())}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate }) {
+  const [addingEvolucion, setAddingEvolucion] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [notificando, setNotificando] = useState(false);
+  const [editingNotif, setEditingNotif] = useState(null);
+  const [viewingNotif, setViewingNotif] = useState(null);
+  const [viewingFicha, setViewingFicha] = useState(false);
+  const [alertaAltaVista, setAlertaAltaVista] = useState(false);
+  const dias = daysBetween(lastMovementDate(hospitalizacion), todayISO());
+  const alerta = hospitalizacion.estado === "activo" && dias >= ALERTA_DIAS;
+  const notificaciones = hospitalizacion.notificaciones || [];
+
+  const historialPrevio = allHospitalizaciones.filter(
+    (h) => h.id !== hospitalizacion.id && h.rut === hospitalizacion.rut && h.estado === "cerrado"
+  );
+
+  const guardarEvolucion = (ev, criteriosIAAS) => {
+    const updated = {
+      ...hospitalizacion,
+      evoluciones: [...hospitalizacion.evoluciones, ev],
+      criteriosIAAS: criteriosIAAS || hospitalizacion.criteriosIAAS,
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdate(updated);
+    setAddingEvolucion(false);
+  };
+
+  const confirmarCierre = (cierre) => {
+    onUpdate({ ...hospitalizacion, estado: "cerrado", cierre, updatedAt: new Date().toISOString() });
+    setClosing(false);
+    setAlertaAltaVista(true);
+    setViewingFicha(true);
+  };
+
+  const guardarNotificacion = (n) => {
+    const yaExiste = notificaciones.some((x) => x.id === n.id);
+    const list = yaExiste ? notificaciones.map((x) => (x.id === n.id ? n : x)) : [...notificaciones, n];
+    onUpdate({ ...hospitalizacion, notificaciones: list, updatedAt: new Date().toISOString() });
+    setNotificando(false);
+    setEditingNotif(null);
+  };
+
+  if (addingEvolucion) {
+    return <EvolucionForm hospitalizacion={hospitalizacion} onCancel={() => setAddingEvolucion(false)} onSave={guardarEvolucion} />;
+  }
+
+  if (notificando) {
+    return (
+      <NotificacionForm
+        hospitalizacion={hospitalizacion}
+        notificacion={editingNotif}
+        onCancel={() => {
+          setNotificando(false);
+          setEditingNotif(null);
+        }}
+        onSave={guardarNotificacion}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={onBack} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+          <ArrowLeft size={18} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-bold text-slate-800 truncate">{hospitalizacion.nombre}</h1>
+          <p className="text-xs text-slate-500">{hospitalizacion.rut} · {hospitalizacion.servicio} · Cama {hospitalizacion.cama || "?"}</p>
+        </div>
+        {hospitalizacion.estado === "cerrado" ? (
+          <Pill tone={hospitalizacion.cierre?.presentoIAAS === "SI" ? "red" : "green"}>
+            {hospitalizacion.cierre?.presentoIAAS === "SI" ? "IAAS +" : "Cerrada"}
+          </Pill>
+        ) : (
+          <Pill tone="teal">Activa</Pill>
+        )}
+      </div>
+
+      <button
+        onClick={() => setViewingFicha(true)}
+        className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 font-semibold text-sm py-2"
+      >
+        <ClipboardList size={15} /> Vista previa / Imprimir ficha de vigilancia
+      </button>
+
+      {alerta && alertaAltaVista && !closing && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800 space-y-2">
+          <div className="flex gap-2">
+            <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+            <span>Sin registro de visita hace {dias} días. ¿El paciente fue dado de alta?</span>
+          </div>
+          <div className="flex gap-2 pl-6">
+            <button
+              onClick={() => setClosing(true)}
+              className="rounded-md bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold px-2.5 py-1.5"
+            >
+              Sí, registrar alta ahora
+            </button>
+            <button
+              onClick={() => setAlertaAltaVista(true)}
+              className="rounded-md border border-amber-300 text-amber-700 text-[11px] font-semibold px-2.5 py-1.5"
+            >
+              No, sigue hospitalizado
+            </button>
+          </div>
+        </div>
+      )}
+
+      {alerta && !alertaAltaVista && (
+        <AlertaAltaModal
+          dias={dias}
+          nombre={hospitalizacion.nombre}
+          onConfirmarAlta={() => {
+            setAlertaAltaVista(true);
+            setClosing(true);
+          }}
+          onSigueHospitalizado={() => setAlertaAltaVista(true)}
+        />
+      )}
+
+      {historialPrevio.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600 flex gap-2">
+          <History size={15} className="shrink-0 mt-0.5 text-slate-400" />
+          <span>{historialPrevio.length} ingreso(s) anterior(es) de este paciente en el histórico.</span>
+        </div>
+      )}
+
+      <SectionCard icon={ClipboardList} title="Datos de cabecera" defaultOpen={false}>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div><span className="text-slate-400">Edad:</span> {hospitalizacion.edad || "—"}</div>
+          <div><span className="text-slate-400">Previsión:</span> {hospitalizacion.prevision || "—"}</div>
+          <div><span className="text-slate-400">F. hospitalización:</span> {fmtDate(hospitalizacion.fechaHospitalizacion)}</div>
+          <div><span className="text-slate-400">F. ingreso vigilancia:</span> {fmtDate(hospitalizacion.fechaIngresoVigilancia)}</div>
+          <div className="col-span-2"><span className="text-slate-400">Diagnóstico:</span> {hospitalizacion.diagnostico || "—"}</div>
+          <div className="col-span-2"><span className="text-slate-400">Antecedentes:</span> {hospitalizacion.antecedentes || "—"}</div>
+          <div><span className="text-slate-400">Aislamiento:</span> {hospitalizacion.tipoAislamiento || "—"}</div>
+          <div><span className="text-slate-400">Agentes IAAS:</span> {hospitalizacion.agentesIAAS || "—"}</div>
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={Syringe} title="Dispositivos invasivos" defaultOpen={false}>
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-sm font-semibold text-slate-700">CVC</span>
+              {cateteresCVCActivos(hospitalizacion).length > 0 && (
+                <span className="text-xs font-semibold text-teal-700">{focoDiasTotal(hospitalizacion, "cvc")}d totales</span>
+              )}
+            </div>
+            <CateteresCVCEditor
+              cateteres={hospitalizacion.dip.cvc.cateteres}
+              onChange={(list) => onUpdate({ ...hospitalizacion, dip: { ...hospitalizacion.dip, cvc: { cateteres: list } } })}
+            />
+          </div>
+          {DISPOSITIVOS.filter((d) => d.key !== "cvc").map((d) => {
+            const dip = hospitalizacion.dip[d.key];
+            if (!dip?.instalado) return null;
+            const diasUso = daysBetween(dip.fechaInstalacion, dip.fechaRetiro || todayISO());
+            return (
+              <div key={d.key} className="flex items-center justify-between text-sm rounded-lg border border-slate-200 px-3 py-2">
+                <div>
+                  <span className="font-semibold text-slate-700">{d.label}</span>
+                  <span className="text-xs text-slate-400 ml-2">{fmtDate(dip.fechaInstalacion)}{dip.ubicacion ? ` · ${dip.ubicacion}` : ""}</span>
+                </div>
+                <span className="text-xs font-semibold text-teal-700">{diasUso}d</span>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+            <Clock size={14} /> Evolución ({hospitalizacion.evoluciones.length} visita{hospitalizacion.evoluciones.length !== 1 ? "s" : ""})
+          </h2>
+          {hospitalizacion.estado === "activo" && (
+            <button
+              onClick={() => setAddingEvolucion(true)}
+              className="flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline"
+            >
+              <Plus size={13} /> Añadir visita
+            </button>
+          )}
+        </div>
+        {hospitalizacion.evoluciones.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white py-8 text-center text-sm text-slate-400">
+            Sin visitas registradas todavía.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {[...hospitalizacion.evoluciones]
+              .sort((a, b) => (a.fecha < b.fecha ? 1 : -1))
+              .map((ev) => (
+                <div key={ev.id} className="rounded-xl border border-slate-200 bg-white p-3.5">
+                  <div className="text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                    <CalendarClock size={13} className="text-slate-400" /> {fmtDate(ev.fecha)}
+                  </div>
+                  <ResumenSintomasEvolucion ev={ev} />
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+            <FileWarning size={14} /> Notificaciones IAAS ({notificaciones.length})
+          </h2>
+          <button
+            onClick={() => {
+              setEditingNotif(null);
+              setNotificando(true);
+            }}
+            className="flex items-center gap-1 text-xs font-semibold text-teal-700 hover:underline"
+          >
+            <Plus size={13} /> Notificar caso
+          </button>
+        </div>
+        {notificaciones.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white py-6 text-center text-xs text-slate-400">
+            Sin sospecha ni confirmación notificada por ahora.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {[...notificaciones]
+              .sort((a, b) => (a.fechaNotificacion < b.fechaNotificacion ? 1 : -1))
+              .map((n) => (
+                <div key={n.id} className="rounded-xl border border-slate-200 bg-white p-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-slate-700">{fmtDate(n.fechaNotificacion)}</div>
+                      <div className="text-xs text-slate-500">{n.diagnosticoIAAS || "Sin diagnóstico IAAS"}</div>
+                    </div>
+                    <Pill tone={n.confirmacion === "SI" ? "red" : n.confirmacion === "NO" ? "green" : "amber"}>
+                      {n.confirmacion || "Pendiente"}
+                    </Pill>
+                  </div>
+                  <div className="flex gap-3 mt-2">
+                    <button
+                      onClick={() => {
+                        setEditingNotif(n);
+                        setNotificando(true);
+                      }}
+                      className="text-xs font-semibold text-teal-700 hover:underline"
+                    >
+                      Editar
+                    </button>
+                    <button onClick={() => setViewingNotif(n)} className="text-xs font-semibold text-slate-500 hover:underline">
+                      Vista previa / Imprimir
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
+
+      {hospitalizacion.estado === "activo" && (
+        <button
+          onClick={() => setClosing(true)}
+          className="w-full rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5 mb-4"
+        >
+          Cerrar ficha (egreso)
+        </button>
+      )}
+
+      {hospitalizacion.estado === "cerrado" && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-sm text-slate-600 mb-4">
+          <div className="font-semibold text-slate-700 mb-1">Cierre registrado</div>
+          <div>Fecha de alta: {fmtDate(hospitalizacion.cierre?.fechaAlta)}</div>
+          {hospitalizacion.cierre?.obs && <div className="mt-1 italic">"{hospitalizacion.cierre.obs}"</div>}
+        </div>
+      )}
+
+      {closing && (
+        <CierreForm hospitalizacion={hospitalizacion} onCancel={() => setClosing(false)} onConfirm={confirmarCierre} />
+      )}
+
+      {viewingNotif && <NotificacionPrintView notificacion={viewingNotif} onClose={() => setViewingNotif(null)} />}
+      {viewingFicha && <FichaVigilanciaPrintView hospitalizacion={hospitalizacion} onClose={() => setViewingFicha(false)} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* App principal                                                           */
+/* ---------------------------------------------------------------------- */
+
+function App() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [hospitalizaciones, setHospitalizaciones] = useState([]);
+  const [view, setView] = useState("censo"); // censo | nueva | ficha | historico
+  const [selectedId, setSelectedId] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const data = await loadHospitalizaciones();
+      setHospitalizaciones(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  const persist = useCallback(async (list) => {
+    setSaving(true);
+    const r = await persistHospitalizaciones(list);
+    if (r && r.records) setHospitalizaciones(r.records);
+    setSaving(false);
+  }, []);
+
+  const handleCreate = async (nuevaFicha) => {
+    const ficha = { ...nuevaFicha, updatedAt: new Date().toISOString() };
+    const list = [...hospitalizaciones, ficha];
+    setHospitalizaciones(list);
+    setSelectedId(ficha.id);
+    setView("ficha");
+    persist(list);
+  };
+
+  const handleUpdate = async (updated) => {
+    const u = { ...updated, updatedAt: new Date().toISOString() };
+    const list = hospitalizaciones.map((h) => (h.id === u.id ? u : h));
+    setHospitalizaciones(list);
+    persist(list);
+  };
+
+  const selected = hospitalizaciones.find((h) => h.id === selectedId);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="animate-spin text-teal-700" size={28} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-24">
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #print-area, #print-area * { visibility: visible; }
+          #print-area { position: absolute; top: 0; left: 0; width: 100%; padding: 16px; }
+        }
+      `}</style>
+      <div className="bg-teal-800 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center gap-2">
+          <Stethoscope size={19} />
+          <div>
+            <div className="font-bold text-sm leading-tight">Vigilancia IAAS</div>
+            <div className="text-[11px] text-teal-100 leading-tight">Hospital del Cobre · Calama</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {saving && <Loader2 size={14} className="animate-spin text-teal-200" />}
+          {USUARIO && USUARIO.nombre && (
+            <span className="text-[10px] text-teal-100 max-w-[110px] truncate" title={USUARIO.nombre}>
+              {USUARIO.nombre}
+            </span>
+          )}
+          <SyncBadge />
+          <button onClick={bloquearApp} title="Bloquear la aplicación" className="text-teal-200 hover:text-white">
+            <Lock size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 pt-4">
+        {view === "censo" && (
+          <CensoView
+            hospitalizaciones={hospitalizaciones}
+            onOpen={(id) => {
+              setSelectedId(id);
+              setView("ficha");
+            }}
+            onNuevo={() => setView("nueva")}
+          />
+        )}
+        {view === "nueva" && (
+          <NuevaFichaForm hospitalizaciones={hospitalizaciones} onCancel={() => setView("censo")} onCreate={handleCreate} />
+        )}
+        {view === "ficha" && selected && (
+          <FichaDetail
+            hospitalizacion={selected}
+            allHospitalizaciones={hospitalizaciones}
+            onBack={() => {
+              setSelectedId(null);
+              setView(selected.estado === "cerrado" ? "historico" : "censo");
+            }}
+            onUpdate={handleUpdate}
+          />
+        )}
+        {view === "historico" && (
+          <HistoricoView
+            hospitalizaciones={hospitalizaciones}
+            onOpen={(id) => {
+              setSelectedId(id);
+              setView("ficha");
+            }}
+          />
+        )}
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 fixed bottom-0 left-0 right-0">
+        <div className="max-w-lg mx-auto bg-white border-t border-slate-200 flex shadow-[0_-2px_8px_rgba(0,0,0,0.04)]" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {[
+            { key: "censo", label: "Censo", icon: BedDouble },
+            { key: "historico", label: "Histórico", icon: History },
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setSelectedId(null);
+                setView(t.key);
+              }}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold ${
+                view === t.key || (view === "ficha" && selected?.estado === (t.key === "historico" ? "cerrado" : "activo"))
+                  ? "text-teal-700"
+                  : "text-slate-400"
+              }`}
+            >
+              <t.icon size={18} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Indicador de sincronización                                             */
+/* ---------------------------------------------------------------------- */
+
+function SyncBadge() {
+  const [online, setOnline] = useState(SyncState.online);
+  useEffect(() => {
+    const f = (v) => setOnline(v);
+    SyncState.listeners.add(f);
+    return () => SyncState.listeners.delete(f);
+  }, []);
+  if (!cloudEnabled()) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-200" title="Nube no configurada: los datos quedan solo en este equipo">
+        <CloudOff size={14} /> Solo este equipo
+      </span>
+    );
+  }
+  if (online === false) {
+    return (
+      <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-200" title="Sin conexión: guardado local cifrado, se sincronizará al reconectar">
+        <CloudOff size={14} /> Sin conexión
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1 text-[10px] font-semibold text-teal-100" title="Sincronizado con la nube">
+      <Cloud size={14} /> Nube
+    </span>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Pantalla de clave                                                       */
+/* ---------------------------------------------------------------------- */
+
+function LockScreen({ onUnlock }) {
+  const [clave, setClave] = useState("");
+  const [ver, setVer] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const entrar = async () => {
+    if (!clave.trim() || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onUnlock(clave.trim());
+    } catch (e) {
+      if (e && e.code === "clave") setError("Clave incorrecta. Inténtalo nuevamente.");
+      else if (e && e.code === "offline") setError("Sin conexión a internet y sin respaldo local en este equipo. Conéctate para el primer ingreso.");
+      else setError("No se pudo iniciar. Revisa tu conexión e inténtalo de nuevo.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <div className="flex flex-col items-center text-center mb-5">
+            <div className="w-12 h-12 rounded-full bg-teal-800 text-white flex items-center justify-center mb-3">
+              <Lock size={22} />
+            </div>
+            <div className="font-bold text-slate-800">Vigilancia IAAS</div>
+            <div className="text-xs text-slate-500">Hospital del Cobre · Calama</div>
+            <div className="text-[11px] text-slate-400 mt-2">Acceso restringido · Información clínica sensible</div>
+          </div>
+          <div className="relative">
+            <input
+              type={ver ? "text" : "password"}
+              value={clave}
+              autoFocus
+              onChange={(e) => setClave(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && entrar()}
+              placeholder="Clave de acceso"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 pr-10 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            />
+            <button
+              type="button"
+              onClick={() => setVer(!ver)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              tabIndex={-1}
+            >
+              {ver ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
+          {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
+          <button
+            onClick={entrar}
+            disabled={busy || !clave.trim()}
+            className="mt-4 w-full rounded-lg bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-sm font-semibold py-2.5 flex items-center justify-center gap-2"
+          >
+            {busy ? <Loader2 size={16} className="animate-spin" /> : "Ingresar"}
+          </button>
+          {!cloudEnabled() && (
+            <div className="mt-4 text-[11px] leading-snug text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              La nube aún no está configurada (falta pegar la URL del Apps Script en el archivo). La app funcionará
+              solo en este equipo, con los datos cifrados con tu clave.
+            </div>
+          )}
+        </div>
+        <div className="text-center text-[10px] text-slate-400 mt-3">
+          Los datos se cifran en este dispositivo y se sincronizan con tu planilla privada de Google.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Raíz: bloqueo → app                                                     */
+/* ---------------------------------------------------------------------- */
+
+function Root() {
+  const [unlocked, setUnlocked] = useState(false);
+  const [checking, setChecking] = useState(!!CLAVE);
+
+  useEffect(() => {
+    if (!CLAVE) return;
+    (async () => {
+      try {
+        await desbloquear(CLAVE);
+        setUnlocked(true);
+      } catch (e) {
+        window.sessionStorage.removeItem(CLAVE_SESION_KEY);
+        CLAVE = null;
+      } finally {
+        setChecking(false);
+      }
+    })();
+  }, []);
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="animate-spin text-teal-700" size={28} />
+      </div>
+    );
+  }
+  if (!unlocked) {
+    return (
+      <LockScreen
+        onUnlock={async (c) => {
+          await desbloquear(c);
+          setUnlocked(true);
+        }}
+      />
+    );
+  }
+  return <App />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+</script>
+</body>
+</html>
