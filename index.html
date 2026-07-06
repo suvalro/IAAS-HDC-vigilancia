@@ -184,6 +184,11 @@ const Droplet = (p) => (
     <path d="M12 2.7s6 6.3 6 10.3a6 6 0 0 1-12 0c0-4 6-10.3 6-10.3Z" />
   </IconBase>
 );
+const Wind = (p) => (
+  <IconBase {...p}>
+    <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2" />
+  </IconBase>
+);
 const Syringe = (p) => (
   <IconBase {...p}>
     <path d="m18 2 4 4M17 7l3-3M8 21l-4-4M2.5 21.5 5 19M9 12l3 3M12 9l3 3" />
@@ -539,6 +544,7 @@ function emptyEvolucion() {
     imagenes: { torax: "", otros: "" },
     sintomas: SINTOMAS.reduce((a, s) => ({ ...a, [s.key]: { presente: false, fecha: "" } }), {}),
     dipEstado: DISPOSITIVOS.reduce((a, d) => ({ ...a, [d.key]: true }), {}),
+    vmiParam: { modo: "", fio2: "", peep: "", volumen: "", secreciones: "" },
     antibioticos: "",
     comentario: "",
   };
@@ -609,7 +615,7 @@ try {
 let PRELOADED = null;
 
 const cloudEnabled = () =>
-  /^https:\/\//.test(SYNC_URL) && SYNC_URL.indexOf("https://script.google.com/macros/s/AKfycbw5UgJKn8GIQvPkmKcWoJmJJGSEhsGf17fkK7IK6w_DPN4ANysG43_hlPwSAwZn_yq2lg/exec") === -1;
+  /^https:\/\//.test(SYNC_URL) && SYNC_URL.indexOf("PEGA_AQUI") === -1;
 
 /* Estado de sincronización (para el indicador del encabezado) */
 const SyncState = {
@@ -1456,6 +1462,49 @@ function EvolucionForm({ hospitalizacion, onCancel, onSave }) {
         </div>
       )}
 
+      {hospitalizacion.dip?.vmi?.instalado && !hospitalizacion.dip?.vmi?.fechaRetiro && (
+        <SectionCard icon={Wind} title="Parámetros VMI del día" defaultOpen={false}>
+          <p className="text-[11px] text-slate-500 mb-2">
+            Registra los parámetros ventilatorios de esta visita. Al imprimir la ficha verás los de los últimos días en columnas,
+            para seguir la tendencia (útil en la vigilancia de NAVMI).
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Modo ventilatorio">
+              <TextInput
+                value={ev.vmiParam?.modo || ""}
+                onChange={(e) => setEv({ ...ev, vmiParam: { ...ev.vmiParam, modo: e.target.value } })}
+                placeholder="Ej: VC, PC, SIMV"
+              />
+            </Field>
+            <Field label="FiO₂ (%)">
+              <TextInput
+                value={ev.vmiParam?.fio2 || ""}
+                onChange={(e) => setEv({ ...ev, vmiParam: { ...ev.vmiParam, fio2: e.target.value } })}
+              />
+            </Field>
+            <Field label="PEEP (cmH₂O)">
+              <TextInput
+                value={ev.vmiParam?.peep || ""}
+                onChange={(e) => setEv({ ...ev, vmiParam: { ...ev.vmiParam, peep: e.target.value } })}
+              />
+            </Field>
+            <Field label="Volumen corriente (mL)">
+              <TextInput
+                value={ev.vmiParam?.volumen || ""}
+                onChange={(e) => setEv({ ...ev, vmiParam: { ...ev.vmiParam, volumen: e.target.value } })}
+              />
+            </Field>
+          </div>
+          <Field label="Secreciones (aspecto/cantidad)">
+            <TextInput
+              value={ev.vmiParam?.secreciones || ""}
+              onChange={(e) => setEv({ ...ev, vmiParam: { ...ev.vmiParam, secreciones: e.target.value } })}
+              placeholder="Ej: purulentas abundantes"
+            />
+          </Field>
+        </SectionCard>
+      )}
+
       <SectionCard icon={Droplet} title="Exámenes de laboratorio" defaultOpen={false}>
         <div className="grid grid-cols-2 gap-3">
           {EXAMENES.map((ex) => (
@@ -2222,6 +2271,130 @@ function AlertaAltaModal({ dias, nombre, onConfirmarAlta, onSigueHospitalizado }
   );
 }
 
+/* Matriz horizontal: fechas en columnas, parámetros en filas (para el PDF) */
+function MatrizEvolucionHorizontal({ evoluciones }) {
+  const evs = [...evoluciones].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+  if (evs.length === 0) return <div className="text-xs text-slate-500">Sin visitas registradas.</div>;
+
+  const th = "border border-slate-300 px-1.5 py-1 text-center bg-slate-100 font-semibold whitespace-nowrap";
+  const rowLabel = "border border-slate-300 px-1.5 py-1 font-semibold bg-slate-50 whitespace-nowrap text-left";
+  const cell = "border border-slate-300 px-1.5 py-1 text-center";
+
+  const filaSintomasResp = (ev) => {
+    const s = ev.sintomas?.sintomasRespiratorios;
+    return s?.presente ? `Sí (${fmtDate(s.fecha)})` : "";
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="border-collapse text-[10px] w-full" style={{ tableLayout: "fixed" }}>
+        <thead>
+          <tr>
+            <th className={th} style={{ width: "110px" }}>Parámetro</th>
+            {evs.map((ev) => (
+              <th key={ev.id} className={th}>{fmtDate(ev.fecha)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {EXAMENES.map((ex) => (
+            <tr key={ex.key}>
+              <td className={rowLabel}>{ex.label}{ex.unit ? ` (${ex.unit})` : ""}</td>
+              {evs.map((ev) => (
+                <td key={ev.id} className={cell}>{ev.examenes?.[ex.key] || "—"}</td>
+              ))}
+            </tr>
+          ))}
+          <tr>
+            <td className={rowLabel}>Síntomas resp.</td>
+            {evs.map((ev) => (
+              <td key={ev.id} className={cell}>{filaSintomasResp(ev) || "—"}</td>
+            ))}
+          </tr>
+          <tr>
+            <td className={rowLabel}>Img. tórax</td>
+            {evs.map((ev) => (
+              <td key={ev.id} className={cell}>{ev.imagenes?.torax || "—"}</td>
+            ))}
+          </tr>
+          <tr>
+            <td className={rowLabel}>Otras imágenes</td>
+            {evs.map((ev) => (
+              <td key={ev.id} className={cell}>{ev.imagenes?.otros || "—"}</td>
+            ))}
+          </tr>
+          <tr>
+            <td className={rowLabel}>ATB</td>
+            {evs.map((ev) => (
+              <td key={ev.id} className={cell}>{ev.antibioticos || "—"}</td>
+            ))}
+          </tr>
+          <tr>
+            <td className={rowLabel}>VMI (parámetros)</td>
+            {evs.map((ev) => (
+              <td key={ev.id} className={cell} style={{ whiteSpace: "pre-line" }}>{formatVmiParam(ev.vmiParam) || "—"}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function elementosCriteriosDeEv(ev) {
+  const out = [];
+  const compartidosVistos = new Set();
+  Object.keys(ev.criteriosRevisados || {})
+    .filter((k) => k !== "compartidos")
+    .forEach((focoKey) => {
+      const foco = CRITERIOS_FOCOS[focoKey];
+      if (!foco) return;
+      const estados = ev.criteriosRevisados[focoKey];
+      const compartidos = ev.criteriosRevisados.compartidos || {};
+      gruposDeFoco(foco).forEach((g) => {
+        foco[g].elementos.forEach((el) => {
+          const esCompartido = ELEMENTOS_COMPARTIDOS_IDS.includes(el.id);
+          const estado = esCompartido ? compartidos[el.id] : estados[el.id];
+          if (estado?.estado !== "presente") return;
+          if (esCompartido) {
+            if (compartidosVistos.has(el.id)) return;
+            compartidosVistos.add(el.id);
+            out.push(`${el.texto} (${fmtDate(estado.fecha)})`);
+          } else {
+            out.push(`${foco.label}: ${el.texto} (${fmtDate(estado.fecha)})`);
+          }
+        });
+      });
+    });
+  return out;
+}
+
+function tieneHallazgosCriterios(ev) {
+  return elementosCriteriosDeEv(ev).length > 0 || !!ev.comentario;
+}
+
+function ResumenCriteriosInline({ ev }) {
+  const els = elementosCriteriosDeEv(ev);
+  return (
+    <span className="text-slate-700">
+      {els.join(" · ")}
+      {els.length > 0 && ev.comentario ? " — " : ""}
+      {ev.comentario ? <span className="italic text-slate-500">"{ev.comentario}"</span> : ""}
+    </span>
+  );
+}
+
+function formatVmiParam(p) {
+  if (!p) return "";
+  const partes = [];
+  if (p.modo) partes.push(p.modo);
+  if (p.fio2) partes.push(`FiO₂ ${p.fio2}`);
+  if (p.peep) partes.push(`PEEP ${p.peep}`);
+  if (p.volumen) partes.push(`VT ${p.volumen}`);
+  if (p.secreciones) partes.push(`Secr: ${p.secreciones}`);
+  return partes.join("\n");
+}
+
 function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
   const cateteres = h.dip?.cvc?.cateteres || [];
   return (
@@ -2246,7 +2419,7 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
           </div>
         )}
 
-        <div id="print-area" className="p-6 text-sm text-slate-800">
+        <div id="print-area" className="ficha-vigilancia-print p-6 text-sm text-slate-800">
           <div className="text-center mb-4">
             <div className="font-bold text-base">FICHA DE VIGILANCIA EPIDEMIOLÓGICA IAAS</div>
             <div className="text-xs text-slate-500">Hospital del Cobre · Dr. Salvador Allende — Calama</div>
@@ -2302,16 +2475,26 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
             <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">
               Matriz de evolución diaria ({h.evoluciones.length} visita{h.evoluciones.length !== 1 ? "s" : ""})
             </div>
-            {[...h.evoluciones]
-              .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))
-              .map((ev) => (
-                <div key={ev.id} className="text-xs mb-2 border-b border-slate-100 pb-1.5">
-                  <div className="font-semibold">{fmtDate(ev.fecha)}</div>
-                  <ResumenSintomasEvolucion ev={ev} />
-                </div>
-              ))}
-            {h.evoluciones.length === 0 && <div className="text-xs text-slate-500">Sin visitas registradas.</div>}
+            <MatrizEvolucionHorizontal evoluciones={h.evoluciones} />
           </div>
+
+          {/* Elementos de criterios IAAS y comentarios, por fecha (no caben en la tabla) */}
+          {h.evoluciones.some((ev) => tieneHallazgosCriterios(ev)) && (
+            <div className="mb-3">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">
+                Elementos de criterios IAAS y observaciones
+              </div>
+              {[...h.evoluciones]
+                .sort((a, b) => (a.fecha < b.fecha ? -1 : 1))
+                .filter((ev) => tieneHallazgosCriterios(ev))
+                .map((ev) => (
+                  <div key={ev.id} className="text-xs mb-1.5">
+                    <span className="font-semibold">{fmtDate(ev.fecha)}: </span>
+                    <ResumenCriteriosInline ev={ev} />
+                  </div>
+                ))}
+            </div>
+          )}
 
           {h.estado === "cerrado" && (
             <div className="mb-3">
@@ -2340,7 +2523,7 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
   );
 }
 
-function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate }) {
+function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, onDelete }) {
   const [addingEvolucion, setAddingEvolucion] = useState(false);
   const [closing, setClosing] = useState(false);
   const [notificando, setNotificando] = useState(false);
@@ -2617,6 +2800,21 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate }
         </div>
       )}
 
+      <button
+        onClick={() => {
+          if (
+            window.confirm(
+              `¿Eliminar definitivamente la ficha de ${hospitalizacion.nombre}?\n\nDesaparecerá del censo, del histórico y de los informes en todos los dispositivos. Úsalo solo para registros de prueba o creados por error.`
+            )
+          ) {
+            onDelete(hospitalizacion.id);
+          }
+        }}
+        className="w-full rounded-lg border border-rose-200 text-rose-500 font-semibold text-xs py-2 mb-4"
+      >
+        Eliminar ficha (prueba o error de registro)
+      </button>
+
       {closing && (
         <CierreForm hospitalizacion={hospitalizacion} onCancel={() => setClosing(false)} onConfirm={confirmarCierre} />
       )}
@@ -2669,6 +2867,18 @@ function App() {
     persist(list);
   };
 
+  const handleDelete = async (id) => {
+    const list = hospitalizaciones.map((h) =>
+      h.id === id ? { ...h, eliminado: true, updatedAt: new Date().toISOString() } : h
+    );
+    setHospitalizaciones(list);
+    setSelectedId(null);
+    setView("censo");
+    persist(list);
+  };
+
+  const visibles = hospitalizaciones.filter((h) => !h.eliminado);
+
   const selected = hospitalizaciones.find((h) => h.id === selectedId);
 
   if (loading) {
@@ -2687,6 +2897,8 @@ function App() {
           #print-area, #print-area * { visibility: visible; }
           #print-area { position: absolute; top: 0; left: 0; width: 100%; padding: 16px; }
         }
+        @page ficha { size: A4 landscape; }
+        .ficha-vigilancia-print { page: ficha; }
       `}</style>
       <div className="bg-teal-800 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-2">
@@ -2713,7 +2925,7 @@ function App() {
       <div className="max-w-lg mx-auto px-4 pt-4">
         {view === "censo" && (
           <CensoView
-            hospitalizaciones={hospitalizaciones}
+            hospitalizaciones={visibles}
             onOpen={(id) => {
               setSelectedId(id);
               setView("ficha");
@@ -2722,22 +2934,23 @@ function App() {
           />
         )}
         {view === "nueva" && (
-          <NuevaFichaForm hospitalizaciones={hospitalizaciones} onCancel={() => setView("censo")} onCreate={handleCreate} />
+          <NuevaFichaForm hospitalizaciones={visibles} onCancel={() => setView("censo")} onCreate={handleCreate} />
         )}
         {view === "ficha" && selected && (
           <FichaDetail
             hospitalizacion={selected}
-            allHospitalizaciones={hospitalizaciones}
+            allHospitalizaciones={visibles}
             onBack={() => {
               setSelectedId(null);
               setView(selected.estado === "cerrado" ? "historico" : "censo");
             }}
             onUpdate={handleUpdate}
+            onDelete={handleDelete}
           />
         )}
         {view === "historico" && (
           <HistoricoView
-            hospitalizaciones={hospitalizaciones}
+            hospitalizaciones={visibles}
             onOpen={(id) => {
               setSelectedId(id);
               setView("ficha");
