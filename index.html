@@ -871,6 +871,8 @@ function newNotificacion(h) {
 /* ⚙️ CONFIGURACIÓN: pega aquí la URL de tu Google Apps Script (termina en /exec) */
 const SYNC_URL = "https://script.google.com/macros/s/AKfycbxJcStY4awgDVPhBqdotfI3paDvJ71Dgt28jcYPTZRZYzbjUE9SG2BZ798NUlzn05GOrg/exec";
 
+const LOGO_CODELCO = "data:image/png;base64,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";
+const LOGO_HDC = "data:image/png;base64,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";
 const CACHE_KEY = "vigilancia-iaas-cache-v2";      // respaldo local CIFRADO
 const PENDING_KEY = "vigilancia-iaas-pendiente";   // hay cambios sin subir a la nube
 const CLAVE_SESION_KEY = "vigilancia-iaas-clave";  // clave durante la sesión
@@ -2028,8 +2030,25 @@ function SeccionSignosGenerales({ estados, onUpdate }) {
   );
 }
 
-function EvolucionForm({ hospitalizacion, onCancel, onSave }) {
-  const [ev, setEv] = useState(emptyEvolucion());
+function EncabezadoPDF({ titulo, subtitulo }) {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <img src={LOGO_HDC} alt="Hospital del Cobre" style={{ height: "34px" }} />
+        <img src={LOGO_CODELCO} alt="CODELCO" style={{ height: "40px" }} />
+      </div>
+      <div className="text-center border-t border-slate-300 pt-2">
+        <div className="font-bold text-base">{titulo}</div>
+        <div className="text-xs text-slate-500">Hospital del Cobre · Dr. Salvador Allende — Calama</div>
+        {subtitulo && <div className="text-xs text-slate-500">{subtitulo}</div>}
+      </div>
+    </div>
+  );
+}
+
+function EvolucionForm({ hospitalizacion, evolucionInicial, onCancel, onSave }) {
+  const editando = !!evolucionInicial;
+  const [ev, setEv] = useState(() => evolucionInicial || emptyEvolucion());
   const [criterios, setCriterios] = useState(() => ensureCriteriosIAAS(hospitalizacion));
   const [errorFechas, setErrorFechas] = useState([]);
 
@@ -2054,7 +2073,7 @@ function EvolucionForm({ hospitalizacion, onCancel, onSave }) {
           <ArrowLeft size={18} />
         </button>
         <div>
-          <h1 className="text-lg font-bold text-slate-800">Registrar visita</h1>
+          <h1 className="text-lg font-bold text-slate-800">{editando ? "Editar visita" : "Registrar visita"}</h1>
           <p className="text-xs text-slate-500">{hospitalizacion.nombre}</p>
         </div>
       </div>
@@ -2759,11 +2778,7 @@ function NotificacionPrintView({ notificacion: n, onClose }) {
         </div>
 
         <div id="print-area" className="p-6 text-sm text-slate-800">
-          <div className="text-center mb-4">
-            <div className="font-bold text-base">FICHA DE NOTIFICACIÓN IAAS</div>
-            <div className="text-xs text-slate-500">Hospital del Cobre · Dr. Salvador Allende — Calama</div>
-            <div className="text-xs text-slate-500">Fecha de notificación: {fmtDate(n.fechaNotificacion)}</div>
-          </div>
+          <EncabezadoPDF titulo="FICHA DE NOTIFICACIÓN IAAS" subtitulo={`Fecha de notificación: ${fmtDate(n.fechaNotificacion)}`} />
 
           <table className="w-full border-collapse text-xs mb-3">
             <tbody>
@@ -3043,10 +3058,7 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
         )}
 
         <div id="print-area" className="ficha-vigilancia-print p-6 text-sm text-slate-800">
-          <div className="text-center mb-4">
-            <div className="font-bold text-base">FICHA DE VIGILANCIA EPIDEMIOLÓGICA IAAS</div>
-            <div className="text-xs text-slate-500">Hospital del Cobre · Dr. Salvador Allende — Calama</div>
-          </div>
+          <EncabezadoPDF titulo="FICHA DE VIGILANCIA EPIDEMIOLÓGICA IAAS" />
 
           <table className="w-full border-collapse text-xs mb-3">
             <tbody>
@@ -3231,6 +3243,7 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
 
 function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, onDelete }) {
   const [addingEvolucion, setAddingEvolucion] = useState(false);
+  const [editingEvolucion, setEditingEvolucion] = useState(null);
   const [closing, setClosing] = useState(false);
   const [notificando, setNotificando] = useState(false);
   const [editingNotif, setEditingNotif] = useState(null);
@@ -3246,14 +3259,28 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
   );
 
   const guardarEvolucion = (ev, criteriosIAAS) => {
+    const yaExiste = hospitalizacion.evoluciones.some((e) => e.id === ev.id);
+    const evoluciones = yaExiste
+      ? hospitalizacion.evoluciones.map((e) => (e.id === ev.id ? ev : e))
+      : [...hospitalizacion.evoluciones, ev];
     const updated = {
       ...hospitalizacion,
-      evoluciones: [...hospitalizacion.evoluciones, ev],
+      evoluciones,
       criteriosIAAS: criteriosIAAS || hospitalizacion.criteriosIAAS,
       updatedAt: new Date().toISOString(),
     };
     onUpdate(updated);
     setAddingEvolucion(false);
+    setEditingEvolucion(null);
+  };
+
+  const eliminarEvolucion = (id) => {
+    if (!window.confirm("¿Eliminar esta visita? No se puede deshacer.")) return;
+    onUpdate({
+      ...hospitalizacion,
+      evoluciones: hospitalizacion.evoluciones.filter((e) => e.id !== id),
+      updatedAt: new Date().toISOString(),
+    });
   };
 
   const confirmarCierre = (cierre) => {
@@ -3273,6 +3300,17 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
 
   if (addingEvolucion) {
     return <EvolucionForm hospitalizacion={hospitalizacion} onCancel={() => setAddingEvolucion(false)} onSave={guardarEvolucion} />;
+  }
+
+  if (editingEvolucion) {
+    return (
+      <EvolucionForm
+        hospitalizacion={hospitalizacion}
+        evolucionInicial={editingEvolucion}
+        onCancel={() => setEditingEvolucion(null)}
+        onSave={guardarEvolucion}
+      />
+    );
   }
 
   if (notificando) {
@@ -3427,8 +3465,26 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
               .sort((a, b) => (a.fecha < b.fecha ? 1 : -1))
               .map((ev) => (
                 <div key={ev.id} className="rounded-xl border border-slate-200 bg-white p-3.5">
-                  <div className="text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                    <CalendarClock size={13} className="text-slate-400" /> {fmtDate(ev.fecha)}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <CalendarClock size={13} className="text-slate-400" /> {fmtDate(ev.fecha)}
+                    </div>
+                    {hospitalizacion.estado === "activo" && (
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setEditingEvolucion(ev)}
+                          className="text-[11px] font-semibold text-teal-700 hover:underline"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => eliminarEvolucion(ev.id)}
+                          className="text-[11px] font-semibold text-rose-400 hover:text-rose-600"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <ResumenSintomasEvolucion ev={ev} />
                 </div>
