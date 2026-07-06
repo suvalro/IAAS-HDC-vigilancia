@@ -595,7 +595,7 @@ function newNotificacion(h) {
 /* ---------------------------------------------------------------------- */
 
 /* ⚙️ CONFIGURACIÓN: pega aquí la URL de tu Google Apps Script (termina en /exec) */
-const SYNC_URL = "PEGA_AQUI_LA_URL_DE_TU_APPS_SCRIPT";
+const SYNC_URL = "https://script.google.com/macros/s/AKfycbxJcStY4awgDVPhBqdotfI3paDvJ71Dgt28jcYPTZRZYzbjUE9SG2BZ798NUlzn05GOrg/exec";
 
 const CACHE_KEY = "vigilancia-iaas-cache-v2";      // respaldo local CIFRADO
 const PENDING_KEY = "vigilancia-iaas-pendiente";   // hay cambios sin subir a la nube
@@ -609,7 +609,7 @@ try {
 let PRELOADED = null;
 
 const cloudEnabled = () =>
-  /^https:\/\//.test(SYNC_URL) && SYNC_URL.indexOf("PEGA_AQUI") === -1;
+  /^https:\/\//.test(SYNC_URL) && SYNC_URL.indexOf("https://script.google.com/macros/s/AKfycbw5UgJKn8GIQvPkmKcWoJmJJGSEhsGf17fkK7IK6w_DPN4ANysG43_hlPwSAwZn_yq2lg/exec") === -1;
 
 /* Estado de sincronización (para el indicador del encabezado) */
 const SyncState = {
