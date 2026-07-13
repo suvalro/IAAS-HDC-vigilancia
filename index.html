@@ -695,6 +695,23 @@ function nivelMaximoAlerta(alertas) {
   return null;
 }
 
+/* Notificaciones que requieren atención del equipo:
+   - sin resolución (confirmacion vacía) → pendiente de confirmar
+   - confirmadas por enfermera sin aval médico → pendiente de aval */
+function notificacionesPendientes(hospitalizaciones) {
+  const out = [];
+  hospitalizaciones.forEach((h) => {
+    (h.notificaciones || []).forEach((n) => {
+      if (!n.confirmacion) {
+        out.push({ h, n, tipo: "sin_resolver" });
+      } else if (!n.avalMedico) {
+        out.push({ h, n, tipo: "sin_aval" });
+      }
+    });
+  });
+  return out;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Indicadores: cálculo de tasas MINSAL                                    */
 /* ---------------------------------------------------------------------- */
@@ -739,7 +756,7 @@ function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio) {
     diasDip += diasDipPacientePeriodo(h, focoKey, desde, hasta, servicio);
     // Un caso cuenta si hay una notificación con este foco = "SI", confirmada, con fecha en el período
     (h.notificaciones || []).forEach((n) => {
-      if (n.confirmacion !== "confirmada") return;
+      if (n.confirmacion !== "SI") return;
       const f = n.dip?.[focoKey];
       if (!f || f.siNo !== "SI") return;
       const fechaN = n.fechaNotificacion || "";
@@ -763,7 +780,7 @@ function casosArepi(hospitalizaciones, arepiKey, desde, hasta) {
   let total = 0;
   hospitalizaciones.forEach((h) => {
     (h.notificaciones || []).forEach((n) => {
-      if (n.confirmacion !== "confirmada") return;
+      if (n.confirmacion !== "SI") return;
       const a = n.arepi?.[arepiKey];
       if (!a || a.siNo !== "SI") return;
       const f = a.fechaInicioSintomas || n.fechaNotificacion || "";
@@ -893,6 +910,10 @@ function newNotificacion(h) {
     }, {}),
     resumenClinico: "",
     confirmacion: "",
+    confirmadoPorRol: "",   // "medico" | "enfermera" — quién dio la confirmación
+    confirmadoPorNombre: "",
+    avalMedico: false,       // true cuando el médico avala (aunque haya confirmado la enfermera)
+    fechaConfirmacion: "",
     enfermeraIAAS: USUARIO && USUARIO.rol === "enfermera" ? USUARIO.nombre : "",
     medicoIAAS: USUARIO && USUARIO.rol === "medico" ? USUARIO.nombre : "",
     createdAt: new Date().toISOString(),
@@ -1199,6 +1220,58 @@ function SectionCard({ icon: Icon, title, subtitle, children, defaultOpen = true
 /* Vista: Censo (lista de pacientes activos)                               */
 /* ---------------------------------------------------------------------- */
 
+function TableroPendientes({ hospitalizaciones, onOpen }) {
+  const pendientes = notificacionesPendientes(hospitalizaciones);
+  if (pendientes.length === 0) return null;
+
+  const sinResolver = pendientes.filter((p) => p.tipo === "sin_resolver");
+  const sinAval = pendientes.filter((p) => p.tipo === "sin_aval");
+  const esMedico = USUARIO?.rol === "medico";
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <FileWarning size={15} className="text-amber-600" />
+        <span className="text-sm font-bold text-amber-800">
+          Notificaciones por revisar ({pendientes.length})
+        </span>
+      </div>
+      <p className="text-[11px] text-amber-700 mb-2">
+        {esMedico
+          ? "Casos que requieren tu resolución o aval como médico IAAS."
+          : "Casos sin resolución de junta o pendientes de aval médico."}
+      </p>
+      <div className="space-y-1.5">
+        {[...sinResolver, ...sinAval].map(({ h, n, tipo }) => (
+          <button
+            key={n.id}
+            onClick={() => onOpen(h.id)}
+            className="w-full text-left rounded-lg bg-white border border-amber-200 px-3 py-2 hover:border-amber-400"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-800 truncate">{h.nombre || "Sin nombre"}</div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  {n.diagnosticoIAAS || "IAAS sin diagnóstico"} · {fmtDate(n.fechaNotificacion)}
+                </div>
+              </div>
+              {tipo === "sin_resolver" ? (
+                <span className="shrink-0 text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200 rounded px-1.5 py-0.5">
+                  Sin resolver
+                </span>
+              ) : (
+                <span className="shrink-0 text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300 rounded px-1.5 py-0.5">
+                  {n.confirmacion} · falta aval
+                </span>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CensoView({ hospitalizaciones, onOpen, onNuevo }) {
   const [filtroServicio, setFiltroServicio] = useState("Todos");
   const [busqueda, setBusqueda] = useState("");
@@ -1265,6 +1338,8 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo }) {
           </button>
         ))}
       </div>
+
+      <TableroPendientes hospitalizaciones={hospitalizaciones} onOpen={onOpen} />
 
       {filtrados.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white py-12 text-center">
@@ -2879,7 +2954,17 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
             <button
               key={v}
               type="button"
-              onClick={() => setN({ ...n, confirmacion: v })}
+              onClick={() => {
+                const esMedico = USUARIO?.rol === "medico";
+                setN({
+                  ...n,
+                  confirmacion: v,
+                  confirmadoPorRol: USUARIO?.rol || "",
+                  confirmadoPorNombre: USUARIO?.nombre || "",
+                  fechaConfirmacion: todayISO(),
+                  avalMedico: esMedico ? true : n.avalMedico, // el médico avala; la enfermera no cambia el aval
+                });
+              }}
               className={`flex-1 rounded-lg border py-2.5 text-xs font-bold ${
                 n.confirmacion === v
                   ? v === "SI"
@@ -2894,6 +2979,32 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
             </button>
           ))}
         </div>
+
+        {/* Estado del aval médico */}
+        {n.confirmacion && (
+          <div className="mt-2.5">
+            {n.avalMedico ? (
+              <div className="text-[11px] rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-1.5">
+                ✓ Avalada por médico IAAS{n.confirmadoPorNombre ? ` — ${n.confirmadoPorNombre}` : ""}
+                {n.fechaConfirmacion ? ` (${fmtDate(n.fechaConfirmacion)})` : ""}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 text-[11px] rounded-lg bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1.5">
+                <span>
+                  Confirmada por {n.confirmadoPorRol === "enfermera" ? "enfermera" : "—"} · <b>pendiente de aval médico</b>
+                </span>
+                {USUARIO?.rol === "medico" && (
+                  <button
+                    onClick={() => setN({ ...n, avalMedico: true, medicoIAAS: n.medicoIAAS || USUARIO.nombre, fechaConfirmacion: todayISO() })}
+                    className="rounded bg-emerald-600 text-white font-semibold px-2 py-1 shrink-0"
+                  >
+                    Avalar ahora
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2 mt-3">
           <Field label="Enfermera IAAS (nombre)">
             <TextInput
@@ -3876,9 +3987,18 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
                       <div className="text-xs font-bold text-slate-700">{fmtDate(n.fechaNotificacion)}</div>
                       <div className="text-xs text-slate-500">{n.diagnosticoIAAS || "Sin diagnóstico IAAS"}</div>
                     </div>
-                    <Pill tone={n.confirmacion === "SI" ? "red" : n.confirmacion === "NO" ? "green" : "amber"}>
-                      {n.confirmacion || "Pendiente"}
-                    </Pill>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <Pill tone={n.confirmacion === "SI" ? "red" : n.confirmacion === "NO" ? "green" : "amber"}>
+                        {n.confirmacion || "Pendiente"}
+                      </Pill>
+                      {n.confirmacion && (
+                        n.avalMedico ? (
+                          <span className="text-[9px] font-semibold text-emerald-600">✓ aval médico</span>
+                        ) : (
+                          <span className="text-[9px] font-semibold text-amber-600">falta aval</span>
+                        )
+                      )}
+                    </div>
                   </div>
                   <div className="flex gap-3 mt-2">
                     <button
