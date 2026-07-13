@@ -751,7 +751,7 @@ function diasDipPacientePeriodo(h, key, desde, hasta, servicio) {
 /* Calcula numerador (IAAS confirmadas) y denominador (días-dispositivo) para un foco. */
 function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio) {
   let diasDip = 0;
-  let casos = 0;
+  const listaCasos = [];
   hospitalizaciones.forEach((h) => {
     diasDip += diasDipPacientePeriodo(h, focoKey, desde, hasta, servicio);
     // Un caso cuenta si hay una notificación con este foco = "SI", confirmada, con fecha en el período
@@ -762,11 +762,20 @@ function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio) {
       const fechaN = n.fechaNotificacion || "";
       if (fechaN < desde || fechaN > hasta) return;
       if (servicio && servicioEnFecha(h, fechaN) !== servicio) return;
-      casos += 1;
+      listaCasos.push({
+        pacienteId: h.id,
+        nombre: h.nombre,
+        rut: h.rut,
+        fecha: fechaN,
+        diagnostico: n.diagnosticoIAAS,
+        servicio: servicioEnFecha(h, fechaN),
+        avalMedico: n.avalMedico,
+      });
     });
   });
+  const casos = listaCasos.length;
   const tasa = diasDip > 0 ? (casos / diasDip) * 1000 : 0;
-  return { casos, diasDip, tasa };
+  return { casos, diasDip, tasa, listaCasos };
 }
 
 function primerDiaMes(iso) {
@@ -777,6 +786,7 @@ function primerDiaMes(iso) {
    Devuelve { total, porGrupo: {neonatos, lactantes, pediatricos, adultos} }. */
 function casosArepi(hospitalizaciones, arepiKey, desde, hasta) {
   const porGrupo = { neonatos: 0, lactantes: 0, pediatricos: 0, adultos: 0 };
+  const listaCasos = { neonatos: [], lactantes: [], pediatricos: [], adultos: [] };
   let total = 0;
   hospitalizaciones.forEach((h) => {
     (h.notificaciones || []).forEach((n) => {
@@ -787,10 +797,11 @@ function casosArepi(hospitalizaciones, arepiKey, desde, hasta) {
       if (f < desde || f > hasta) return;
       const g = grupoEtarioPaciente(h, arepiKey);
       porGrupo[g] = (porGrupo[g] || 0) + 1;
+      listaCasos[g].push({ pacienteId: h.id, nombre: h.nombre, rut: h.rut, fecha: f, diagnostico: n.diagnosticoIAAS, avalMedico: n.avalMedico });
       total += 1;
     });
   });
-  return { total, porGrupo };
+  return { total, porGrupo, listaCasos };
 }
 
 /* Tasa AREpi = casos / días-cama del grupo × 1000. diasCama viene del input manual. */
@@ -1443,11 +1454,12 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo }) {
 
 const SERVICIOS_ITU = ["Medicina", "MQ", "UPC"]; // desglose ITU/CUP por servicio
 
-function IndicadoresView({ hospitalizaciones }) {
+function IndicadoresView({ hospitalizaciones, onOpenCaso }) {
   const hoy = todayISO();
   const [anio, setAnio] = useState(hoy.slice(0, 4));
   const [cuatri, setCuatri] = useState(cuatriActual(hoy));
   const [diasCama, setDiasCama] = useState(() => cargarDiasCama(hoy.slice(0, 4), cuatriActual(hoy)));
+  const [ituAbierto, setItuAbierto] = useState(null);
 
   const { desde, hasta } = rangoCuatrimestre(anio, cuatri);
 
@@ -1522,9 +1534,9 @@ function IndicadoresView({ hospitalizaciones }) {
 
       {/* Tarjetas de tasa principal */}
       <div className="grid grid-cols-1 gap-2">
-        <TasaCard titulo="ITS / CVC" subtitulo="Infección torrente sanguíneo asociada a CVC" data={itsCvc} />
-        <TasaCard titulo="NAVMI" subtitulo="Neumonía asociada a VMI" data={navmi} />
-        <TasaCard titulo="ITU / CUP (global)" subtitulo="Infección urinaria asociada a CUP" data={ituGlobal} />
+        <TasaCard titulo="ITS / CVC" subtitulo="Infección torrente sanguíneo asociada a CVC" data={itsCvc} onOpenCaso={onOpenCaso} />
+        <TasaCard titulo="NAVMI" subtitulo="Neumonía asociada a VMI" data={navmi} onOpenCaso={onOpenCaso} />
+        <TasaCard titulo="ITU / CUP (global)" subtitulo="Infección urinaria asociada a CUP" data={ituGlobal} onOpenCaso={onOpenCaso} />
       </div>
 
       {/* ITU/CUP por servicio */}
@@ -1541,12 +1553,34 @@ function IndicadoresView({ hospitalizaciones }) {
           </thead>
           <tbody>
             {ituPorServicio.map((r) => (
-              <tr key={r.servicio} className="border-b border-slate-100">
-                <td className="py-1.5 font-semibold text-slate-700">{r.servicio}</td>
-                <td className="text-right">{r.casos}</td>
-                <td className="text-right">{r.diasDip}</td>
-                <td className="text-right font-bold text-teal-700">{r.tasa.toFixed(2)}</td>
-              </tr>
+              <React.Fragment key={r.servicio}>
+                <tr
+                  className={`border-b border-slate-100 ${r.casos > 0 ? "cursor-pointer" : ""}`}
+                  onClick={() => r.casos > 0 && setItuAbierto(ituAbierto === r.servicio ? null : r.servicio)}
+                >
+                  <td className="py-1.5 font-semibold text-slate-700">
+                    {r.servicio} {r.casos > 0 && <span className="text-teal-600">▾</span>}
+                  </td>
+                  <td className="text-right">{r.casos}</td>
+                  <td className="text-right">{r.diasDip}</td>
+                  <td className="text-right font-bold text-teal-700">{r.tasa.toFixed(2)}</td>
+                </tr>
+                {ituAbierto === r.servicio &&
+                  (r.listaCasos || []).map((c, i) => (
+                    <tr key={i} className="bg-slate-50">
+                      <td colSpan={4} className="px-2 py-1.5">
+                        <button
+                          onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)}
+                          className="w-full text-left rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 hover:border-teal-400"
+                        >
+                          <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
+                          <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · {fmtDate(c.fecha)}</span>
+                          <span className="text-[10px] text-teal-600 font-semibold float-right">Revisar ›</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -1592,24 +1626,45 @@ function IndicadoresView({ hospitalizaciones }) {
           </thead>
           <tbody>
             {AREPI_LIST.flatMap((a) => {
-              const { porGrupo } = casosArepi(hospitalizaciones, a.key, desde, hasta);
-              // mostrar solo los grupos que tienen casos, o el grupo por defecto si no hay ninguno
+              const { porGrupo, listaCasos } = casosArepi(hospitalizaciones, a.key, desde, hasta);
               const gruposConCasos = GRUPOS_ETARIOS.filter((g) => porGrupo[g.key] > 0);
               const filas = gruposConCasos.length > 0 ? gruposConCasos : [GRUPOS_ETARIOS.find((g) => g.key === AREPI_GRUPO_DEFECTO[a.key])];
               return filas.map((g, idx) => {
                 const casos = porGrupo[g.key] || 0;
                 const dc = diasCama[g.key] || "";
                 const tasa = tasaArepi(casos, dc);
+                const claveFila = a.key + g.key;
+                const casosFila = (listaCasos && listaCasos[g.key]) || [];
                 return (
-                  <tr key={a.key + g.key} className="border-b border-slate-100">
-                    <td className="py-1.5 pr-1">
-                      {idx === 0 && <div className="font-semibold text-slate-700 leading-tight">{a.label}</div>}
-                      <div className="text-[10px] text-slate-400">{g.label}</div>
-                    </td>
-                    <td className="text-right align-top pt-1.5">{casos}</td>
-                    <td className="text-right align-top pt-1.5">{dc || "—"}</td>
-                    <td className="text-right align-top pt-1.5 font-bold text-teal-700">{dc ? tasa.toFixed(2) : "—"}</td>
-                  </tr>
+                  <React.Fragment key={claveFila}>
+                    <tr
+                      className={`border-b border-slate-100 ${casos > 0 ? "cursor-pointer" : ""}`}
+                      onClick={() => casos > 0 && setItuAbierto(ituAbierto === claveFila ? null : claveFila)}
+                    >
+                      <td className="py-1.5 pr-1">
+                        {idx === 0 && <div className="font-semibold text-slate-700 leading-tight">{a.label}</div>}
+                        <div className="text-[10px] text-slate-400">{g.label} {casos > 0 && <span className="text-teal-600">▾</span>}</div>
+                      </td>
+                      <td className="text-right align-top pt-1.5">{casos}</td>
+                      <td className="text-right align-top pt-1.5">{dc || "—"}</td>
+                      <td className="text-right align-top pt-1.5 font-bold text-teal-700">{dc ? tasa.toFixed(2) : "—"}</td>
+                    </tr>
+                    {ituAbierto === claveFila &&
+                      casosFila.map((c, i) => (
+                        <tr key={i} className="bg-slate-50">
+                          <td colSpan={4} className="px-2 py-1.5">
+                            <button
+                              onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)}
+                              className="w-full text-left rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 hover:border-teal-400"
+                            >
+                              <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
+                              <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · {fmtDate(c.fecha)}</span>
+                              <span className="text-[10px] text-teal-600 font-semibold float-right">Revisar ›</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </React.Fragment>
                 );
               });
             })}
@@ -1630,18 +1685,53 @@ function IndicadoresView({ hospitalizaciones }) {
   );
 }
 
-function TasaCard({ titulo, subtitulo, data }) {
+function TasaCard({ titulo, subtitulo, data, onOpenCaso }) {
+  const [abierto, setAbierto] = useState(false);
+  const casos = data.listaCasos || [];
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3.5 flex items-center justify-between">
-      <div className="min-w-0">
-        <div className="font-bold text-sm text-slate-800">{titulo}</div>
-        <div className="text-[11px] text-slate-500">{subtitulo}</div>
-        <div className="text-[11px] text-slate-400 mt-0.5">{data.casos} caso(s) · {data.diasDip} días-disp.</div>
-      </div>
-      <div className="text-right shrink-0 ml-3">
-        <div className="text-2xl font-bold text-teal-700">{data.tasa.toFixed(2)}</div>
-        <div className="text-[10px] text-slate-400">por 1.000 días</div>
-      </div>
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <button
+        onClick={() => casos.length > 0 && setAbierto((v) => !v)}
+        className="w-full p-3.5 flex items-center justify-between text-left"
+      >
+        <div className="min-w-0">
+          <div className="font-bold text-sm text-slate-800">{titulo}</div>
+          <div className="text-[11px] text-slate-500">{subtitulo}</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">
+            {data.casos} caso(s) · {data.diasDip} días-disp.
+            {casos.length > 0 && <span className="text-teal-600 font-semibold"> · toca para ver casos ▾</span>}
+          </div>
+        </div>
+        <div className="text-right shrink-0 ml-3">
+          <div className="text-2xl font-bold text-teal-700">{data.tasa.toFixed(2)}</div>
+          <div className="text-[10px] text-slate-400">por 1.000 días</div>
+        </div>
+      </button>
+      {abierto && casos.length > 0 && (
+        <div className="border-t border-slate-100 bg-slate-50 p-2 space-y-1.5">
+          {casos.map((c, i) => (
+            <button
+              key={i}
+              onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)}
+              className="w-full text-left rounded-lg bg-white border border-slate-200 px-3 py-2 hover:border-teal-400"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-slate-800 truncate">{c.nombre || "Sin nombre"}</div>
+                  <div className="text-[11px] text-slate-500 truncate">
+                    {c.rut || "Sin RUT"} · {c.servicio || "—"} · {fmtDate(c.fecha)}
+                  </div>
+                  {c.diagnostico && <div className="text-[11px] text-slate-400 truncate">{c.diagnostico}</div>}
+                </div>
+                <div className="flex flex-col items-end gap-0.5 shrink-0">
+                  <span className="text-[10px] text-teal-600 font-semibold">Revisar ›</span>
+                  {!c.avalMedico && <span className="text-[9px] text-amber-600 font-semibold">falta aval</span>}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4185,7 +4275,15 @@ function App() {
             onDelete={handleDelete}
           />
         )}
-        {view === "indicadores" && <IndicadoresView hospitalizaciones={visibles} />}
+        {view === "indicadores" && (
+          <IndicadoresView
+            hospitalizaciones={visibles}
+            onOpenCaso={(id) => {
+              setSelectedId(id);
+              setView("ficha");
+            }}
+          />
+        )}
 
         {view === "historico" && (
           <HistoricoView
