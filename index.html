@@ -150,6 +150,13 @@ const ArrowRightLeft = (p) => (
     <path d="M4 17h16" />
   </IconBase>
 );
+const ShieldAlert = (p) => (
+  <IconBase {...p}>
+    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    <path d="M12 8v4" />
+    <path d="M12 16h.01" />
+  </IconBase>
+);
 const Download = (p) => (
   <IconBase {...p}>
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -241,6 +248,24 @@ const SINTOMAS = [
 
 const ELEMENTO_FIEBRE = { id: "fiebre", texto: "Fiebre ≥ 38 °C axilar" };
 
+const TIPOS_AISLAMIENTO = [
+  { key: "contacto", label: "Contacto" },
+  { key: "gotitas", label: "Gotitas" },
+  { key: "aereo", label: "Aéreo / respiratorio" },
+  { key: "protector", label: "Protector (inverso)" },
+];
+
+function formatAislamientos(h) {
+  const lista = h.aislamientos || [];
+  if (lista.length === 0) return h.tipoAislamiento || "—";
+  return lista
+    .map((a) => {
+      const label = TIPOS_AISLAMIENTO.find((t) => t.key === a.tipo)?.label || a.tipo;
+      return `${label}${a.motivo ? ` (${a.motivo})` : ""}`;
+    })
+    .join(" + ");
+}
+
 const DISPOSITIVOS = [
   { key: "cup", label: "CUP", full: "Catéter urinario permanente" },
   { key: "cvc", label: "CVC / PICC", full: "Catéter venoso central" },
@@ -276,7 +301,6 @@ const SEDIMENTO = [
 
 const CULTIVOS = [
   { key: "urocultivo", label: "Urocultivo" },
-  { key: "hemocultivos", label: "Hemocultivos" },
   { key: "aetCsb", label: "AET / CSB" },
   { key: "otrosCultivos", label: "Otros cultivos" },
 ];
@@ -595,7 +619,12 @@ function focoDiasTotal(h, key) {
   }
   const d = h.dip?.[key];
   if (!d?.instalado) return 0;
-  return daysBetween(d.fechaInstalacion, d.fechaRetiro || todayISO());
+  const actual = daysBetween(d.fechaInstalacion, d.fechaRetiro || todayISO());
+  const previos = (d.previos || []).reduce(
+    (s, p) => s + (p.fechaInstalacion ? daysBetween(p.fechaInstalacion, p.fechaRetiro || p.fechaInstalacion) : 0),
+    0
+  );
+  return actual + previos;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -689,7 +718,10 @@ function diasDipPacientePeriodo(h, key, desde, hasta, servicio) {
     key === "cvc"
       ? (h.dip?.cvc?.cateteres || []).map((c) => [c.fechaInstalacion, c.fechaRetiro])
       : h.dip?.[key]?.instalado
-      ? [[h.dip[key].fechaInstalacion, h.dip[key].fechaRetiro]]
+      ? [
+          [h.dip[key].fechaInstalacion, h.dip[key].fechaRetiro],
+          ...(h.dip[key].previos || []).map((p) => [p.fechaInstalacion, p.fechaRetiro]),
+        ]
       : [];
   if (tramos.length === 0) return 0;
 
@@ -790,6 +822,7 @@ function newHospitalizacion() {
     cirugias: [],
     antecedentes: "",
     tipoAislamiento: "",
+    aislamientos: [], // [{tipo, fecha, motivo}] múltiples y con historial
     agentesIAAS: "",
     dip: emptyDip(),
     evoluciones: [],
@@ -806,8 +839,10 @@ function emptyEvolucion() {
     id: uid(),
     fecha: todayISO(),
     examenes: EXAMENES.reduce((a, e) => ({ ...a, [e.key]: "" }), {}),
+    fechaExamenes: "",
     sedimentoOrina: SEDIMENTO.reduce((a, s) => ({ ...a, [s.key]: "" }), {}),
-    cultivos: CULTIVOS.reduce((a, c) => ({ ...a, [c.key]: { resultado: "", pendiente: false } }), {}),
+    cultivos: CULTIVOS.reduce((a, c) => ({ ...a, [c.key]: { resultado: "", pendiente: false, fecha: "" } }), {}),
+    hemocultivos: [], // [{fecha, origen: "periferico"|"arrastre", resultado, pendiente}]
     imagenes: { torax: "", otros: "" },
     sintomas: SINTOMAS.reduce((a, s) => ({ ...a, [s.key]: { presente: false, fecha: "" } }), {}),
     dipEstado: DISPOSITIVOS.reduce((a, d) => ({ ...a, [d.key]: true }), {}),
@@ -1843,10 +1878,35 @@ function NuevaFichaForm({ hospitalizaciones, onCancel, onCreate }) {
           <Field label="Antecedentes mórbidos" className="col-span-2">
             <TextArea value={form.antecedentes} onChange={(e) => set("antecedentes", e.target.value)} />
           </Field>
-          <Field label="Tipo de aislamiento">
-            <TextInput value={form.tipoAislamiento} onChange={(e) => set("tipoAislamiento", e.target.value)} />
+          <Field label="Tipo(s) de aislamiento al ingreso" className="col-span-2">
+            <div className="flex flex-wrap gap-2 mt-1">
+              {TIPOS_AISLAMIENTO.map((t) => {
+                const activo = (form.aislamientos || []).some((a) => a.tipo === t.key);
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => {
+                      const lista = form.aislamientos || [];
+                      const nueva = activo
+                        ? lista.filter((a) => a.tipo !== t.key)
+                        : [...lista, { tipo: t.key, fecha: form.fechaHospitalizacion || todayISO(), motivo: "" }];
+                      set("aislamientos", nueva);
+                    }}
+                    className={`text-xs font-semibold rounded-full px-3 py-1.5 border ${
+                      activo ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-600 border-slate-300"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+            {(form.aislamientos || []).length === 0 && (
+              <div className="text-[11px] text-slate-400 mt-1.5">Sin aislamiento. Puedes agregar tipos después desde la ficha si aparece una infección.</div>
+            )}
           </Field>
-          <Field label="Agentes IAAS y resistencia">
+          <Field label="Agentes IAAS y resistencia" className="col-span-2">
             <TextInput value={form.agentesIAAS} onChange={(e) => set("agentesIAAS", e.target.value)} />
           </Field>
         </div>
@@ -1891,6 +1951,13 @@ function NuevaFichaForm({ hospitalizaciones, onCancel, onCreate }) {
                     <TextInput
                       value={form.dip[d.key].ubicacion}
                       onChange={(e) => set("dip", { ...form.dip, [d.key]: { ...form.dip[d.key], ubicacion: e.target.value } })}
+                    />
+                  </Field>
+                  <Field label="Fecha de retiro (si ya se retiró)">
+                    <TextInput
+                      type="date"
+                      value={form.dip[d.key].fechaRetiro}
+                      onChange={(e) => set("dip", { ...form.dip, [d.key]: { ...form.dip[d.key], fechaRetiro: e.target.value } })}
                     />
                   </Field>
                 </div>
@@ -2148,7 +2215,14 @@ function EvolucionForm({ hospitalizacion, evolucionInicial, onCancel, onSave }) 
       )}
 
       <SectionCard icon={Droplet} title="Exámenes de laboratorio" defaultOpen={false}>
-        <div className="grid grid-cols-2 gap-3">
+        <Field label="Fecha de toma de muestra (si difiere de la visita)">
+          <TextInput
+            type="date"
+            value={ev.fechaExamenes || ""}
+            onChange={(e) => setEv({ ...ev, fechaExamenes: e.target.value })}
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-3 mt-2">
           {EXAMENES.map((ex) => (
             <Field key={ex.key} label={`${ex.label} (${ex.unit})`}>
               <TextInput value={ev.examenes[ex.key]} onChange={(e) => setEv({ ...ev, examenes: { ...ev.examenes, [ex.key]: e.target.value } })} />
@@ -2171,31 +2245,105 @@ function EvolucionForm({ hospitalizacion, evolucionInicial, onCancel, onSave }) 
       </SectionCard>
 
       <SectionCard icon={ClipboardList} title="Cultivos" subtitle="Marca “pendiente” si aún no hay resultado" defaultOpen={false}>
+        {/* Hemocultivos: varias muestras, cada una periférico o de arrastre */}
+        <div className="rounded-lg border border-slate-200 p-2.5 mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-sm font-semibold text-slate-700">Hemocultivos</span>
+            <button
+              onClick={() =>
+                setEv({ ...ev, hemocultivos: [...(ev.hemocultivos || []), { fecha: ev.fechaExamenes || ev.fecha, origen: "periferico", resultado: "", pendiente: false }] })
+              }
+              className="text-[11px] font-semibold text-teal-700 hover:underline"
+            >
+              + Agregar muestra
+            </button>
+          </div>
+          {(ev.hemocultivos || []).length === 0 ? (
+            <p className="text-[11px] text-slate-400">Sin hemocultivos registrados. Puedes agregar cada frasco/muestra por separado.</p>
+          ) : (
+            <div className="space-y-2">
+              {(ev.hemocultivos || []).map((hc, i) => {
+                const upd = (patch) => {
+                  const list = [...ev.hemocultivos];
+                  list[i] = { ...list[i], ...patch };
+                  setEv({ ...ev, hemocultivos: list });
+                };
+                return (
+                  <div key={i} className="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label={`Muestra ${i + 1} · fecha`}>
+                        <TextInput type="date" value={hc.fecha} onChange={(e) => upd({ fecha: e.target.value })} />
+                      </Field>
+                      <Field label="Origen">
+                        <Select value={hc.origen} onChange={(e) => upd({ origen: e.target.value })}>
+                          <option value="periferico">Periférico</option>
+                          <option value="arrastre">De arrastre (por CVC)</option>
+                          <option value="punta">Punta de catéter</option>
+                        </Select>
+                      </Field>
+                    </div>
+                    <div className="flex gap-2 items-start mt-1">
+                      <div className="flex-1">
+                        <TextInput
+                          value={hc.resultado}
+                          onChange={(e) => upd({ resultado: e.target.value })}
+                          placeholder={hc.pendiente ? "(p) pendiente" : "MO aislado / negativo"}
+                        />
+                      </div>
+                      <label className="flex items-center gap-1 mt-2 shrink-0">
+                        <input type="checkbox" checked={hc.pendiente} onChange={(e) => upd({ pendiente: e.target.checked })} className="h-4 w-4 accent-amber-600" />
+                        <span className="text-xs text-slate-500">(p)</span>
+                      </label>
+                      <button
+                        onClick={() => setEv({ ...ev, hemocultivos: ev.hemocultivos.filter((_, j) => j !== i) })}
+                        className="mt-2 text-rose-400 text-[11px] hover:text-rose-600 shrink-0"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         <div className="space-y-2.5">
           {CULTIVOS.map((c) => (
-            <div key={c.key} className="flex gap-2 items-start">
-              <div className="flex-1">
-                <Field label={c.label}>
-                  <TextInput
-                    value={ev.cultivos[c.key].resultado}
+            <div key={c.key}>
+              <div className="flex gap-2 items-start">
+                <div className="flex-1">
+                  <Field label={c.label}>
+                    <TextInput
+                      value={ev.cultivos[c.key].resultado}
+                      onChange={(e) =>
+                        setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], resultado: e.target.value } } })
+                      }
+                      placeholder={ev.cultivos[c.key].pendiente ? "(p) pendiente" : "Resultado / MO aislado"}
+                    />
+                  </Field>
+                </div>
+                <div className="w-28 shrink-0">
+                  <Field label="Fecha toma">
+                    <TextInput
+                      type="date"
+                      value={ev.cultivos[c.key].fecha || ""}
+                      onChange={(e) => setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], fecha: e.target.value } } })}
+                    />
+                  </Field>
+                </div>
+                <label className="flex items-center gap-1.5 mt-6 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={ev.cultivos[c.key].pendiente}
                     onChange={(e) =>
-                      setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], resultado: e.target.value } } })
+                      setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], pendiente: e.target.checked } } })
                     }
-                    placeholder={ev.cultivos[c.key].pendiente ? "(p) pendiente" : "Resultado / MO aislado"}
+                    className="h-4 w-4 accent-amber-600"
                   />
-                </Field>
+                  <span className="text-xs text-slate-500">(p)</span>
+                </label>
               </div>
-              <label className="flex items-center gap-1.5 mt-6 shrink-0">
-                <input
-                  type="checkbox"
-                  checked={ev.cultivos[c.key].pendiente}
-                  onChange={(e) =>
-                    setEv({ ...ev, cultivos: { ...ev.cultivos, [c.key]: { ...ev.cultivos[c.key], pendiente: e.target.checked } } })
-                  }
-                  className="h-4 w-4 accent-amber-600"
-                />
-                <span className="text-xs text-slate-500">(p)</span>
-              </label>
             </div>
           ))}
         </div>
@@ -2371,6 +2519,29 @@ function ResumenSintomasEvolucion({ ev }) {
       {examenesLlenos.length > 0 && (
         <div className="text-xs text-slate-600">
           {examenesLlenos.map((e) => `${e.label} ${ev.examenes[e.key]}`).join(" · ")}
+          {ev.fechaExamenes ? ` (muestra ${fmtDate(ev.fechaExamenes)})` : ""}
+        </div>
+      )}
+      {(ev.hemocultivos || []).length > 0 && (
+        <div className="text-xs text-slate-600">
+          <span className="font-semibold">Hemocultivos:</span>{" "}
+          {ev.hemocultivos
+            .map((hc) => {
+              const origen = hc.origen === "arrastre" ? "arrastre" : hc.origen === "punta" ? "punta cat." : "perif.";
+              const res = hc.pendiente ? "(p)" : hc.resultado || "—";
+              return `${res} [${origen}${hc.fecha ? ` ${fmtDate(hc.fecha)}` : ""}]`;
+            })
+            .join(" · ")}
+        </div>
+      )}
+      {CULTIVOS.filter((c) => ev.cultivos[c.key]?.resultado || ev.cultivos[c.key]?.pendiente).length > 0 && (
+        <div className="text-xs text-slate-600">
+          {CULTIVOS.filter((c) => ev.cultivos[c.key]?.resultado || ev.cultivos[c.key]?.pendiente)
+            .map((c) => {
+              const cu = ev.cultivos[c.key];
+              return `${c.label}: ${cu.pendiente ? "(p)" : cu.resultado}${cu.fecha ? ` (${fmtDate(cu.fecha)})` : ""}`;
+            })
+            .join(" · ")}
         </div>
       )}
       {ev.imagenes?.torax && (
@@ -2385,7 +2556,7 @@ function ResumenSintomasEvolucion({ ev }) {
       )}
       {ev.antibioticos && <div className="text-xs text-slate-600">ATB: {ev.antibioticos}</div>}
       {ev.comentario && <div className="text-xs text-slate-500 italic">"{ev.comentario}"</div>}
-      {elementosPresentes.length === 0 && activos.length === 0 && examenesLlenos.length === 0 && !ev.imagenes?.torax && !ev.imagenes?.otros && !ev.antibioticos && !ev.comentario && (
+      {elementosPresentes.length === 0 && activos.length === 0 && examenesLlenos.length === 0 && (ev.hemocultivos || []).length === 0 && !ev.imagenes?.torax && !ev.imagenes?.otros && !ev.antibioticos && !ev.comentario && (
         <div className="text-xs text-slate-400">Visita sin hallazgos relevantes registrados.</div>
       )}
     </div>
@@ -2943,6 +3114,47 @@ function MatrizEvolucionHorizontal({ evoluciones }) {
               ))}
             </tr>
           ))}
+          {evs.some((ev) => ev.fechaExamenes) && (
+            <tr>
+              <td className={rowLabel}>Fecha muestra (labs)</td>
+              {evs.map((ev) => (
+                <td key={ev.id} className={cell}>{ev.fechaExamenes ? fmtDate(ev.fechaExamenes) : "—"}</td>
+              ))}
+            </tr>
+          )}
+          {evs.some((ev) => (ev.hemocultivos || []).length > 0) && (
+            <tr>
+              <td className={rowLabel}>Hemocultivos</td>
+              {evs.map((ev) => (
+                <td key={ev.id} className={cell} style={{ whiteSpace: "pre-line" }}>
+                  {(ev.hemocultivos || []).length > 0
+                    ? ev.hemocultivos
+                        .map((hc) => {
+                          const o = hc.origen === "arrastre" ? "arr." : hc.origen === "punta" ? "punta" : "perif.";
+                          return `${hc.pendiente ? "(p)" : hc.resultado || "—"} [${o}${hc.fecha ? " " + fmtDate(hc.fecha) : ""}]`;
+                        })
+                        .join("\n")
+                    : "—"}
+                </td>
+              ))}
+            </tr>
+          )}
+          {CULTIVOS.map((c) =>
+            evs.some((ev) => ev.cultivos?.[c.key]?.resultado || ev.cultivos?.[c.key]?.pendiente) ? (
+              <tr key={c.key}>
+                <td className={rowLabel}>{c.label}</td>
+                {evs.map((ev) => {
+                  const cu = ev.cultivos?.[c.key];
+                  const val = cu?.pendiente ? "(p)" : cu?.resultado || "";
+                  return (
+                    <td key={ev.id} className={cell}>
+                      {val ? `${val}${cu.fecha ? ` (${fmtDate(cu.fecha)})` : ""}` : "—"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ) : null
+          )}
           <tr>
             <td className={rowLabel}>Síntomas resp.</td>
             {evs.map((ev) => (
@@ -3078,7 +3290,7 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
               <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.diagnostico || "—"}</td></tr>
               <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Antecedentes mórbidos</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.antecedentes || "—"}</td></tr>
               <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Tipo de aislamiento</td><td className="border border-slate-300 px-2 py-1">{h.tipoAislamiento || "—"}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Tipo de aislamiento</td><td className="border border-slate-300 px-2 py-1">{formatAislamientos(h)}</td>
                 <td className="border border-slate-300 px-2 py-1 font-semibold">Agentes IAAS</td><td className="border border-slate-300 px-2 py-1">{h.agentesIAAS || "—"}</td>
               </tr>
             </tbody>
@@ -3155,6 +3367,75 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function AislamientoCard({ hospitalizacion: h, onUpdate }) {
+  const [motivoNuevo, setMotivoNuevo] = useState({});
+  const editable = h.estado === "activo";
+  const aislamientos = h.aislamientos || [];
+
+  const toggle = (tipoKey) => {
+    const activo = aislamientos.some((a) => a.tipo === tipoKey);
+    const lista = activo
+      ? aislamientos.filter((a) => a.tipo !== tipoKey)
+      : [...aislamientos, { tipo: tipoKey, fecha: todayISO(), motivo: motivoNuevo[tipoKey] || "" }];
+    onUpdate({ ...h, aislamientos: lista, updatedAt: new Date().toISOString() });
+  };
+
+  return (
+    <SectionCard icon={ShieldAlert} title="Aislamiento" defaultOpen={aislamientos.length > 0}>
+      <p className="text-[11px] text-slate-500 mb-2">
+        Marca los tipos activos. Si aparece una nueva infección (ej. COVID → gotitas + contacto), agrégalos aquí con la fecha
+        en que se indicó. Puede haber varios a la vez.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {TIPOS_AISLAMIENTO.map((t) => {
+          const activo = aislamientos.some((a) => a.tipo === t.key);
+          return (
+            <button
+              key={t.key}
+              type="button"
+              disabled={!editable}
+              onClick={() => toggle(t.key)}
+              className={`text-xs font-semibold rounded-full px-3 py-1.5 border ${
+                activo ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-600 border-slate-300"
+              } ${!editable ? "opacity-60" : ""}`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {aislamientos.length > 0 && (
+        <div className="mt-3 space-y-1.5">
+          {aislamientos.map((a) => {
+            const label = TIPOS_AISLAMIENTO.find((t) => t.key === a.tipo)?.label || a.tipo;
+            return (
+              <div key={a.tipo} className="text-xs rounded-lg border border-slate-200 px-3 py-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">{label}</span>
+                  <span className="text-slate-400">desde {fmtDate(a.fecha)}</span>
+                </div>
+                {editable && (
+                  <TextInput
+                    value={a.motivo || ""}
+                    onChange={(e) => {
+                      const lista = aislamientos.map((x) => (x.tipo === a.tipo ? { ...x, motivo: e.target.value } : x));
+                      onUpdate({ ...h, aislamientos: lista, updatedAt: new Date().toISOString() });
+                    }}
+                    placeholder="Motivo (ej: SARS-CoV-2, BLEE, C. difficile…)"
+                    className="mt-1 text-xs"
+                  />
+                )}
+                {!editable && a.motivo && <div className="text-slate-500 mt-0.5">{a.motivo}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 
@@ -3403,7 +3684,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
           <div><span className="text-slate-400">F. ingreso vigilancia:</span> {fmtDate(hospitalizacion.fechaIngresoVigilancia)}</div>
           <div className="col-span-2"><span className="text-slate-400">Diagnóstico:</span> {hospitalizacion.diagnostico || "—"}</div>
           <div className="col-span-2"><span className="text-slate-400">Antecedentes:</span> {hospitalizacion.antecedentes || "—"}</div>
-          <div><span className="text-slate-400">Aislamiento:</span> {hospitalizacion.tipoAislamiento || "—"}</div>
+          <div><span className="text-slate-400">Aislamiento:</span> {formatAislamientos(hospitalizacion)}</div>
           <div><span className="text-slate-400">Agentes IAAS:</span> {hospitalizacion.agentesIAAS || "—"}</div>
         </div>
       </SectionCard>
@@ -3424,15 +3705,85 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
           </div>
           {DISPOSITIVOS.filter((d) => d.key !== "cvc").map((d) => {
             const dip = hospitalizacion.dip[d.key];
-            if (!dip?.instalado) return null;
+            const editable = hospitalizacion.estado === "activo";
+            const setDip = (patch) =>
+              onUpdate({ ...hospitalizacion, dip: { ...hospitalizacion.dip, [d.key]: { ...dip, ...patch }, }, updatedAt: new Date().toISOString() });
+
+            if (!dip?.instalado) {
+              // permitir instalar desde la ficha si no estaba
+              return editable ? (
+                <label key={d.key} className="flex items-center gap-2 text-sm rounded-lg border border-dashed border-slate-200 px-3 py-2 text-slate-500">
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    onChange={() => setDip({ instalado: true, fechaInstalacion: todayISO() })}
+                    className="h-4 w-4 accent-teal-700"
+                  />
+                  Instalar {d.label}
+                </label>
+              ) : null;
+            }
+
             const diasUso = daysBetween(dip.fechaInstalacion, dip.fechaRetiro || todayISO());
+            const previos = dip.previos || []; // episodios anteriores (por cambios)
+            const diasPrevios = previos.reduce((s, p) => s + (p.fechaInstalacion ? daysBetween(p.fechaInstalacion, p.fechaRetiro || p.fechaInstalacion) : 0), 0);
+
             return (
-              <div key={d.key} className="flex items-center justify-between text-sm rounded-lg border border-slate-200 px-3 py-2">
-                <div>
-                  <span className="font-semibold text-slate-700">{d.label}</span>
-                  <span className="text-xs text-slate-400 ml-2">{fmtDate(dip.fechaInstalacion)}{dip.ubicacion ? ` · ${dip.ubicacion}` : ""}</span>
+              <div key={d.key} className="rounded-lg border border-slate-200 px-3 py-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-semibold text-slate-700 text-sm">{d.label}</span>
+                  <span className="text-xs font-semibold text-teal-700">
+                    {diasUso + diasPrevios}d {previos.length > 0 ? "(acum.)" : ""}
+                  </span>
                 </div>
-                <span className="text-xs font-semibold text-teal-700">{diasUso}d</span>
+
+                {previos.length > 0 && (
+                  <div className="text-[11px] text-slate-400 mb-1.5">
+                    {previos.map((p, i) => (
+                      <div key={i}>
+                        Anterior: {fmtDate(p.fechaInstalacion)} → {p.fechaRetiro ? fmtDate(p.fechaRetiro) : "?"}{p.ubicacion ? ` · ${p.ubicacion}` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {editable ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Instalación (actual)">
+                      <TextInput type="date" value={dip.fechaInstalacion} onChange={(e) => setDip({ fechaInstalacion: e.target.value })} />
+                    </Field>
+                    <Field label="Retiro">
+                      <TextInput type="date" value={dip.fechaRetiro} onChange={(e) => setDip({ fechaRetiro: e.target.value })} />
+                    </Field>
+                    <Field label="Ubicación" className="col-span-2">
+                      <TextInput value={dip.ubicacion} onChange={(e) => setDip({ ubicacion: e.target.value })} />
+                    </Field>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500">
+                    {fmtDate(dip.fechaInstalacion)}{dip.fechaRetiro ? ` a ${fmtDate(dip.fechaRetiro)}` : " · en curso"} · {diasUso}d
+                  </div>
+                )}
+
+                {editable && (
+                  <button
+                    onClick={() => {
+                      const fRetiro = dip.fechaRetiro || todayISO();
+                      const nuevoPrevio = { fechaInstalacion: dip.fechaInstalacion, fechaRetiro: fRetiro, ubicacion: dip.ubicacion };
+                      onUpdate({
+                        ...hospitalizacion,
+                        dip: {
+                          ...hospitalizacion.dip,
+                          [d.key]: { instalado: true, fechaInstalacion: todayISO(), fechaRetiro: "", ubicacion: "", previos: [...previos, nuevoPrevio] },
+                        },
+                        updatedAt: new Date().toISOString(),
+                      });
+                    }}
+                    className="mt-2 text-[11px] font-semibold text-teal-700 hover:underline"
+                  >
+                    + Registrar cambio de {d.label} (nuevo dispositivo)
+                  </button>
+                )}
               </div>
             );
           })}
@@ -3440,6 +3791,8 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
       </SectionCard>
 
       <TrasladosCard hospitalizacion={hospitalizacion} onUpdate={onUpdate} />
+
+      <AislamientoCard hospitalizacion={hospitalizacion} onUpdate={onUpdate} />
 
       <div>
         <div className="flex items-center justify-between mb-2">
