@@ -383,6 +383,65 @@ function gruposDeFoco(foco) {
   return ["grupoA", "grupoB", "grupoC"].filter((g) => foco[g]);
 }
 
+/* Clasifica el tipo de elemento según el grupo del foco (para la narrativa EI/EE/ED).
+   grupoA = signos/síntomas o imagen (inespecíficos EI); grupoB = confirmación
+   microbiológica o específicos (EE); grupoC = elemento definitivo (ED, ej. urocultivo). */
+function tipoElemento(focoKey, grupo) {
+  if (grupo === "grupoC") return "ED";
+  if (grupo === "grupoB") return "EE";
+  return "EI";
+}
+
+/* Construye la historia cronológica de vigilancia: todos los elementos identificados
+   en todas las visitas, con fecha, foco y tipo (EI/EE/ED), ordenados por fecha.
+   Es la narrativa que muestra cómo empezó y cómo se definió la IAAS. */
+function construirLineaTiempoVigilancia(hospitalizacion) {
+  const eventos = [];
+
+  // Recopilar de cada visita (criteriosRevisados) para tener la historia completa
+  const fuentes = [];
+  (hospitalizacion.evoluciones || []).forEach((ev) => {
+    if (ev.criteriosRevisados) fuentes.push(ev.criteriosRevisados);
+  });
+  // Incluir también el acumulado por si hay elementos solo ahí
+  if (hospitalizacion.criteriosIAAS) fuentes.push(hospitalizacion.criteriosIAAS);
+
+  fuentes.forEach((criterios) => {
+    const compartidos = criterios.compartidos || {};
+    Object.keys(CRITERIOS_FOCOS).forEach((focoKey) => {
+      const foco = CRITERIOS_FOCOS[focoKey];
+      const focoEstados = criterios[focoKey] || {};
+      gruposDeFoco(foco).forEach((g) => {
+        foco[g].elementos.forEach((el) => {
+          const esCompartido = ELEMENTOS_COMPARTIDOS_IDS.includes(el.id);
+          const estado = esCompartido ? compartidos[el.id] : focoEstados[el.id];
+          if (estado?.estado !== "presente") return;
+          eventos.push({
+            fecha: estado.fecha || "",
+            tipo: tipoElemento(focoKey, g),
+            texto: el.texto,
+            foco: foco.label,
+            focoKey,
+            compartido: esCompartido,
+          });
+        });
+      });
+    });
+  });
+
+  // Deduplicar (mismo elemento/fecha puede aparecer en varias fuentes)
+  const vistos = new Set();
+  const dedup = [];
+  eventos.forEach((e) => {
+    const clave = e.compartido ? `comp-${e.texto}-${e.fecha}` : `${e.focoKey}-${e.texto}-${e.fecha}`;
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    dedup.push(e);
+  });
+
+  return dedup.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+}
+
 // Elementos que se repiten en más de un foco (ej. fiebre aparece en CVC, CUP y VMI):
 // se preguntan una sola vez por visita y se aplican a todos los focos correspondientes.
 const ELEMENTOS_COMPARTIDOS = {
@@ -454,7 +513,8 @@ function elementosPresentesFoco(criteriosIAAS, focoKey) {
   const result = [];
   gruposDeFoco(foco).forEach((g) => {
     foco[g].elementos.forEach((el) => {
-      const estado = ELEMENTOS_COMPARTIDOS_IDS.includes(el.id) ? compartidos[el.id] : focoEstados[el.id];
+      const esCompartido = ELEMENTOS_COMPARTIDOS_IDS.includes(el.id);
+      const estado = esCompartido ? compartidos[el.id] : focoEstados[el.id];
       if (estado?.estado === "presente") {
         result.push({ texto: el.texto, fecha: estado.fecha });
       }
@@ -464,14 +524,13 @@ function elementosPresentesFoco(criteriosIAAS, focoKey) {
 }
 
 const CIRUGIAS_TRAZADORAS = [
-  { key: "proteseCadera", label: "Prótesis de cadera", criterios: ["Presencia de pus (ED)", "Fiebre"] },
-  { key: "herniaInguinal", label: "Hernia inguinal adulto", criterios: ["Sensibilidad o dolor", "Aumento de volumen"] },
-  { key: "colecistectomiaLaparo", label: "Colecistectomía laparoscópica", criterios: [] },
-  { key: "colecistectomiaLaparotomica", label: "Colecistectomía laparotómica", criterios: ["Secreción seropurulenta o serohemática", "Eritema o calor local"] },
-  { key: "cesarea", label: "Cesárea (con o sin trabajo de parto)", criterios: [] },
-  { key: "otrasCirugias", label: "Otras cirugías", criterios: [] },
-  { key: "parto", label: "Parto", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre"] },
-  { key: "cataratas", label: "Cataratas (con o sin LIO)", criterios: ["Dolor ocular", "Visión borrosa", "Hipopion"] },
+  { key: "proteseCadera", label: "Prótesis de cadera (total/parcial)", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática"], tipo: "IHO", diasSeguimiento: 30 },
+  { key: "herniaInguinal", label: "Hernia inguinal adulto (c/s malla)", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática"], tipo: "IHO", diasSeguimiento: 30 },
+  { key: "colecistectomiaLaparo", label: "Colecistectomía laparoscópica", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática"], tipo: "IHO", diasSeguimiento: 30 },
+  { key: "colecistectomiaLaparotomica", label: "Colecistectomía laparotómica", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática"], tipo: "IHO", diasSeguimiento: 30 },
+  { key: "cesarea", label: "Cesárea (con/sin trabajo de parto)", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre"], tipo: "endometritis", diasSeguimiento: 10 },
+  { key: "partoVaginal", label: "Parto vaginal", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre"], tipo: "endometritis", diasSeguimiento: 10 },
+  { key: "cataratas", label: "Cataratas (c/s LIO)", criterios: ["Dolor ocular", "Visión borrosa", "Hipopion"], tipo: "endoftalmitis", diasSeguimiento: 10 },
 ];
 
 const AREPI_LIST = [
@@ -827,6 +886,24 @@ function guardarDiasCama(anio, cuatri, data) {
     window.localStorage.setItem(keyDiasCama(anio, cuatri), JSON.stringify(data));
   } catch (e) {}
 }
+
+/* Total de procedimientos realizados por tipo (dato de pabellón), para calcular cobertura. */
+function keyTotalCx(anio, cuatri) {
+  return `vigilancia-iaas-totalcx-${anio}-C${cuatri}`;
+}
+function cargarTotalCx(anio, cuatri) {
+  try {
+    const raw = window.localStorage.getItem(keyTotalCx(anio, cuatri));
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+function guardarTotalCx(anio, cuatri, data) {
+  try {
+    window.localStorage.setItem(keyTotalCx(anio, cuatri), JSON.stringify(data));
+  } catch (e) {}
+}
 function nombreMes(iso) {
   const meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const [y, m] = iso.split("-");
@@ -836,6 +913,7 @@ function nombreMes(iso) {
 function newHospitalizacion() {
   return {
     id: uid(),
+    tipoRegistro: "hospitalizacion",
     rut: "",
     nombre: "",
     edad: "",
@@ -861,6 +939,43 @@ function newHospitalizacion() {
     updatedAt: new Date().toISOString(),
   };
 }
+
+function newCirugiaVigilancia() {
+  return {
+    id: uid(),
+    tipoRegistro: "cirugia",
+    nombre: "",
+    rut: "",
+    edad: "",
+    tipoProcedimiento: "",
+    fechaProcedimiento: todayISO(),
+    fechaControl: "",
+    fuenteVigilancia: "", // dónde se obtuvo la info del seguimiento
+    caracteristica: "",
+    fechaAlta: "",
+    iaas: "",
+    mo: "",
+    observaciones: "",
+    updatedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+const CARACTERISTICAS_CX = [
+  { key: "1", label: "S/INF (sin infección)" },
+  { key: "2", label: "C/INF (con infección)" },
+  { key: "3", label: "S/REG (sin registro)" },
+];
+
+/* Fuentes de información de la vigilancia post-egreso (según manual MINSAL) */
+const FUENTES_VIGILANCIA = [
+  { key: "control", label: "Control médico post-alta" },
+  { key: "urgencia", label: "Consulta en urgencias" },
+  { key: "hospitalizado", label: "Paciente hospitalizado" },
+  { key: "procedimiento", label: "Sala de procedimiento / curaciones" },
+  { key: "reingreso", label: "Reingreso" },
+  { key: "ficha", label: "Revisión de ficha clínica" },
+];
 
 function emptyEvolucion() {
   return {
@@ -902,9 +1017,11 @@ function newNotificacion(h) {
     categoria: "",
     dip: Object.keys(CRITERIOS_FOCOS).reduce((acc, key) => {
       const instalado = focoInstalado(h, key);
+      // Los elementos presentes son solo REFERENCIA para la junta, no deciden el foco.
+      // El siNo queda SIEMPRE vacío: lo define la enfermera/médico conscientemente en la notificación.
       const presentes = elementosPresentesFoco(h.criteriosIAAS, key).map((e) => `${e.texto} (${fmtDate(e.fecha)})`);
       acc[key] = {
-        siNo: instalado && presentes.length ? "SI" : instalado ? "" : "",
+        siNo: "",
         diasCalendario: instalado ? focoDiasTotal(h, key) : "",
         criteriosMarcados: presentes,
         mo: h.agentesIAAS || "",
@@ -1454,7 +1571,101 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo }) {
 
 const SERVICIOS_ITU = ["Medicina", "MQ", "UPC"]; // desglose ITU/CUP por servicio
 
-function IndicadoresView({ hospitalizaciones, onOpenCaso }) {
+function IndicadoresCirugias({ cirugias, desde, hasta, anio, cuatri, onOpenCaso }) {
+  const [totalCx, setTotalCx] = useState(() => cargarTotalCx(anio, cuatri));
+
+  useEffect(() => {
+    setTotalCx(cargarTotalCx(anio, cuatri));
+  }, [anio, cuatri]);
+
+  const setTotalTipo = (key, valor) => {
+    const nuevo = { ...totalCx, [key]: valor };
+    setTotalCx(nuevo);
+    guardarTotalCx(anio, cuatri, nuevo);
+  };
+
+  const enPeriodo = cirugias.filter((c) => c.fechaProcedimiento >= desde && c.fechaProcedimiento <= hasta);
+
+  const porTipo = CIRUGIAS_TRAZADORAS.map((cx) => {
+    const registros = enPeriodo.filter((c) => c.tipoProcedimiento === cx.key);
+    const vigilados = registros.length;
+    const casos = registros.filter((c) => c.iaas === "SI");
+    // Total realizado: el ingresado manualmente (pabellón), o los vigilados si no se ingresó
+    const realizados = parseInt(totalCx[cx.key], 10) || 0;
+    const denomIncidencia = vigilados; // la incidencia se calcula sobre lo vigilado
+    const incidencia = denomIncidencia > 0 ? (casos.length / denomIncidencia) * 100 : 0;
+    const cobertura = realizados > 0 ? (vigilados / realizados) * 100 : null;
+    return { cx, vigilados, realizados, casos, incidencia, cobertura };
+  }).filter((r) => r.vigilados > 0 || r.realizados > 0);
+
+  if (porTipo.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3.5">
+      <div className="font-bold text-sm text-slate-700 mb-1">Cirugías y procedimientos trazadores</div>
+      <p className="text-[11px] text-slate-500 mb-3">
+        Ingresa el <b>total realizado</b> por tipo (dato de pabellón) para calcular la cobertura de vigilancia.
+        La incidencia de IHO/endometritis se calcula sobre los procedimientos vigilados.
+      </p>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-slate-500 border-b border-slate-200">
+            <th className="text-left py-1">Procedimiento</th>
+            <th className="text-right py-1">Vig.</th>
+            <th className="text-right py-1">Realiz.</th>
+            <th className="text-right py-1">Cobert.%</th>
+            <th className="text-right py-1">IAAS</th>
+            <th className="text-right py-1">Inc.%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {porTipo.map((r) => (
+            <React.Fragment key={r.cx.key}>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 font-semibold text-slate-700 leading-tight">{r.cx.label}</td>
+                <td className="text-right">{r.vigilados}</td>
+                <td className="text-right">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={totalCx[r.cx.key] || ""}
+                    onChange={(e) => setTotalTipo(r.cx.key, e.target.value)}
+                    placeholder="—"
+                    className="w-12 text-right rounded border border-slate-300 px-1 py-0.5 text-xs"
+                  />
+                </td>
+                <td className={`text-right font-bold ${r.cobertura !== null && r.cobertura < 90 ? "text-amber-600" : "text-slate-700"}`}>
+                  {r.cobertura !== null ? r.cobertura.toFixed(0) : "—"}
+                </td>
+                <td className="text-right">{r.casos.length}</td>
+                <td className="text-right font-bold text-teal-700">{r.incidencia.toFixed(1)}</td>
+              </tr>
+              {r.casos.map((c, i) => (
+                <tr key={i} className="bg-slate-50">
+                  <td colSpan={6} className="px-2 py-1.5">
+                    <button
+                      onClick={() => onOpenCaso && onOpenCaso(c.id, "cirugia")}
+                      className="w-full text-left rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 hover:border-teal-400"
+                    >
+                      <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
+                      <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · Cx {fmtDate(c.fechaProcedimiento)}</span>
+                      <span className="text-[10px] text-teal-600 font-semibold float-right">Revisar ›</span>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-[10px] text-slate-400 mt-2">
+        Cobertura = (vigilados ÷ realizados) × 100 · Incidencia = (IHO ÷ vigilados) × 100
+      </p>
+    </div>
+  );
+}
+
+function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
   const hoy = todayISO();
   const [anio, setAnio] = useState(hoy.slice(0, 4));
   const [cuatri, setCuatri] = useState(cuatriActual(hoy));
@@ -1509,7 +1720,23 @@ function IndicadoresView({ hospitalizaciones, onOpenCaso }) {
     });
   });
 
-  const exportar = () => exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlobal, ituPorServicio, tendencia, arepiExport });
+  const cirugiasEnPeriodo = cirugias.filter((c) => c.fechaProcedimiento >= desde && c.fechaProcedimiento <= hasta);
+  const totalCxExport = cargarTotalCx(anio, cuatri);
+  const cirugiasExport = CIRUGIAS_TRAZADORAS.map((cx) => {
+    const regs = cirugiasEnPeriodo.filter((c) => c.tipoProcedimiento === cx.key);
+    const casos = regs.filter((c) => c.iaas === "SI").length;
+    const realizados = parseInt(totalCxExport[cx.key], 10) || 0;
+    return {
+      label: cx.label,
+      casos,
+      vigilados: regs.length,
+      realizados,
+      cobertura: realizados > 0 ? (regs.length / realizados) * 100 : null,
+      incidencia: regs.length > 0 ? (casos / regs.length) * 100 : 0,
+    };
+  }).filter((r) => r.vigilados > 0 || r.realizados > 0);
+
+  const exportar = () => exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlobal, ituPorServicio, tendencia, arepiExport, cirugiasExport });
 
   return (
     <div className="space-y-4">
@@ -1673,6 +1900,9 @@ function IndicadoresView({ hospitalizaciones, onOpenCaso }) {
         <p className="text-[10px] text-slate-400 mt-2">Tasa = (casos ÷ días-cama del grupo) × 1.000</p>
       </div>
 
+      {/* Indicadores de cirugías trazadoras (IHO / endometritis) */}
+      <IndicadoresCirugias cirugias={cirugias} desde={desde} hasta={hasta} anio={anio} cuatri={cuatri} onOpenCaso={onOpenCaso} />
+
       <button onClick={exportar} className="w-full rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 flex items-center justify-center gap-2">
         <Download size={16} /> Exportar indicadores (CSV para el Comité)
       </button>
@@ -1807,7 +2037,7 @@ function aniosDisponibles(hosp, hoy) {
   return [...set].sort().reverse();
 }
 
-function exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlobal, ituPorServicio, tendencia, arepiExport }) {
+function exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlobal, ituPorServicio, tendencia, arepiExport, cirugiasExport }) {
   const lineas = [];
   lineas.push(`Indicadores IAAS - HDC Calama`);
   lineas.push(`Periodo,${anio} cuatrimestre ${cuatri},${desde} a ${hasta}`);
@@ -1827,6 +2057,14 @@ function exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlo
   lineas.push("");
   lineas.push("Tendencia mensual,ITS/CVC,NAVMI,ITU/CUP");
   tendencia.forEach((t) => lineas.push(`${t.mes},${t.itsCvc.toFixed(2)},${t.navmi.toFixed(2)},${t.itu.toFixed(2)}`));
+
+  if (cirugiasExport && cirugiasExport.length > 0) {
+    lineas.push("");
+    lineas.push("Cirugias/procedimientos,Vigilados,Realizados,Cobertura x100,IAAS,Incidencia x100");
+    cirugiasExport.forEach((r) =>
+      lineas.push(`${r.label.replace(/,/g, ";")},${r.vigilados},${r.realizados || ""},${r.cobertura !== null ? r.cobertura.toFixed(0) : ""},${r.casos},${r.incidencia.toFixed(1)}`)
+    );
+  }
 
   const blob = new Blob(["\uFEFF" + lineas.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -2244,9 +2482,13 @@ function CriteriosFocoSection({ focoKey, estados, onUpdate, hospitalizacion }) {
   );
 }
 
-function SeccionSignosGenerales({ estados, onUpdate }) {
+function SeccionSignosGenerales({ estados, onUpdate, hospitalizacion }) {
   return (
-    <SectionCard icon={AlertTriangle} title="Signos generales" subtitle="Se pregunta una sola vez y aplica a todos los dispositivos activos">
+    <SectionCard
+      icon={AlertTriangle}
+      title="Signos generales (inespecíficos)"
+      subtitle="Solo orientan la búsqueda. No definen el foco: eso se decide en la notificación."
+    >
       <div className="space-y-1.5">
         {ELEMENTOS_COMPARTIDOS_IDS.map((id) => (
           <ElementoToggle
@@ -2320,6 +2562,7 @@ function EvolucionForm({ hospitalizacion, evolucionInicial, onCancel, onSave }) 
             <SeccionSignosGenerales
               estados={criterios.compartidos}
               onUpdate={(next) => setCriterios((c) => ({ ...c, compartidos: next }))}
+              hospitalizacion={hospitalizacion}
             />
           )}
           {Object.keys(criterios)
@@ -2812,6 +3055,44 @@ function CriteriosChecklist({ criterios, marcados, onToggle }) {
   );
 }
 
+function LineaTiempoVigilancia({ hospitalizacion }) {
+  const eventos = construirLineaTiempoVigilancia(hospitalizacion);
+  const colorTipo = { EI: "bg-slate-100 text-slate-600 border-slate-300", EE: "bg-sky-100 text-sky-700 border-sky-300", ED: "bg-rose-100 text-rose-700 border-rose-300" };
+  const nombreTipo = { EI: "Inespecífico", EE: "Específico", ED: "Definitivo" };
+
+  return (
+    <SectionCard icon={History} title="Historia de vigilancia (cronológica)" defaultOpen>
+      <p className="text-[11px] text-slate-500 mb-2">
+        Secuencia de elementos identificados en las visitas, ordenados por fecha. Muestra cómo empezó y cómo se fue
+        configurando el diagnóstico. Los inespecíficos (EI) orientan; los específicos (EE) y definitivos (ED) sustentan.
+      </p>
+      {eventos.length === 0 ? (
+        <p className="text-xs text-slate-400">Sin elementos registrados aún en las visitas.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {eventos.map((e, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <div className="text-[11px] font-mono text-slate-500 w-16 shrink-0 pt-0.5">{e.fecha ? fmtDate(e.fecha) : "s/f"}</div>
+              <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 border shrink-0 ${colorTipo[e.tipo]}`} title={nombreTipo[e.tipo]}>
+                {e.tipo}
+              </span>
+              <div className="text-xs text-slate-700 flex-1">
+                {e.texto}
+                {!e.compartido && <span className="text-slate-400"> · {e.foco}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex gap-3 text-[10px] text-slate-400">
+        <span>EI = inespecífico</span>
+        <span>EE = específico</span>
+        <span>ED = definitivo</span>
+      </div>
+    </SectionCard>
+  );
+}
+
 function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
   const [n, setN] = useState(notificacion || newNotificacion(hospitalizacion));
 
@@ -2916,19 +3197,19 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
                     </Field>
                   </div>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Elementos presentes (con fecha de aparición)
+                    Elementos observados en vigilancia (solo referencia)
                   </p>
                   {n.dip[key].criteriosMarcados.length ? (
                     <div className="flex flex-wrap gap-1.5">
                       {n.dip[key].criteriosMarcados.map((c) => (
-                        <span key={c} className="text-[11px] rounded-full px-2.5 py-1 bg-rose-600 text-white font-medium">
+                        <span key={c} className="text-[11px] rounded-full px-2.5 py-1 bg-slate-200 text-slate-700 font-medium">
                           {c}
                         </span>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                      Sin elementos marcados "Presente" aún en la ficha de vigilancia para este dispositivo.
+                    <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                      Sin elementos observados aún. Recuerda: los signos inespecíficos (fiebre, etc.) orientan pero no confirman; el foco lo define la junta.
                     </p>
                   )}
                 </div>
@@ -3033,6 +3314,8 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
         </div>
       </SectionCard>
 
+      <LineaTiempoVigilancia hospitalizacion={hospitalizacion} />
+
       <SectionCard icon={ClipboardList} title="Resumen de historia clínica" defaultOpen={false}>
         <TextArea value={n.resumenClinico} onChange={(e) => setN({ ...n, resumenClinico: e.target.value })} placeholder="Síntesis para el comité…" />
       </SectionCard>
@@ -3129,11 +3412,158 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
   );
 }
 
-function NotificacionPrintView({ notificacion: n, onClose }) {
-  const dipActivos = Object.entries(n.dip).filter(([, v]) => v.siNo === "SI");
-  const cxActivas = CIRUGIAS_TRAZADORAS.filter((c) => n.cirugias[c.key].siNo === "SI");
-  const arepiActivos = AREPI_LIST.filter((a) => n.arepi[a.key].siNo === "SI");
+/* Estilos comunes para las tablas oficiales del PDF de notificación */
+const OFI = {
+  header: { background: "#f5d9c8" },
+  th: "border border-slate-500 px-1.5 py-1 text-center font-bold",
+  td: "border border-slate-400 px-1.5 py-0.5",
+  cellChk: "border border-slate-400 px-1 py-0.5 text-center",
+};
 
+/* Marca ✓ si un criterio (por texto) está presente en criteriosMarcados */
+function tieneCriterio(marcados, texto) {
+  return (marcados || []).some((m) => m.toLowerCase().includes(texto.toLowerCase().slice(0, 12)));
+}
+
+/* Fila de dos criterios lado a lado (como el formato oficial) */
+function FilaCriterios2({ izq, der, marcados }) {
+  return (
+    <tr>
+      <td className={OFI.td}>{izq}</td>
+      <td className={OFI.cellChk} style={{ width: "24px" }}>{izq && tieneCriterio(marcados, izq) ? "✓" : ""}</td>
+      <td className={OFI.td}>{der || ""}</td>
+      <td className={OFI.cellChk} style={{ width: "24px" }}>{der && tieneCriterio(marcados, der) ? "✓" : ""}</td>
+    </tr>
+  );
+}
+
+function TablaFactoresDIP({ n }) {
+  const filas = {
+    cup: [["Fiebre", "Leucocituria"], ["Sint. irritativo vesical", "Placa pus"], ["Dolor costo vertebral", "Piocitos"], ["Alteración estado conciencia en AM", ""]],
+    cvc: [["Taquicardia o bradicardia", "Fiebre o hipotermia"], ["Apnea menor de 1 año", "Hipotensión"], ["Eritema y exudado sitio inserción CVC", ""]],
+    vmi: [["Fiebre", "Infiltrado"], ["Leucocitosis o leucopenia", "condensación"], ["Deterioro intercambio gaseoso", "Cavitación"], ["Expect. purulenta o aumento aspiración de secreciones", "Hemoptisis"]],
+  };
+  const labels = { cup: "CUP", cvc: "CVC", vmi: "VMI" };
+  return (
+    <div className="mb-3">
+      <table className="w-full border-collapse text-[11px]">
+        <thead>
+          <tr style={OFI.header}>
+            <th className={OFI.th} colSpan={6} style={{ textAlign: "left" }}>Factores de riesgo asociados a DIP</th>
+          </tr>
+          <tr style={OFI.header}>
+            <th className={OFI.th}>DIP</th>
+            <th className={OFI.th}>SI/NO</th>
+            <th className={OFI.th}>Días calend.</th>
+            <th className={OFI.th} colSpan={2}>Criterios confirmación</th>
+            <th className={OFI.th}>MO</th>
+          </tr>
+        </thead>
+        <tbody>
+          {["cup", "cvc", "vmi"].map((key) => {
+            const v = n.dip[key] || {};
+            const fs = filas[key];
+            return fs.map((par, idx) => (
+              <tr key={key + idx}>
+                {idx === 0 && (
+                  <>
+                    <td className={OFI.td + " font-bold text-center"} rowSpan={fs.length} style={{ background: "#f5d9c8" }}>{labels[key]}</td>
+                    <td className={OFI.cellChk + " font-bold"} rowSpan={fs.length}>{v.siNo || ""}</td>
+                    <td className={OFI.cellChk} rowSpan={fs.length}>{v.diasCalendario || ""}</td>
+                  </>
+                )}
+                <td className={OFI.td}>{par[0]}</td>
+                <td className={OFI.cellChk} style={{ width: "22px" }}>{par[0] && tieneCriterio(v.criteriosMarcados, par[0]) ? "✓" : ""}</td>
+                {idx === 0 ? (
+                  <td className={OFI.td} rowSpan={fs.length}>{v.mo || ""}</td>
+                ) : null}
+                {idx === 0 ? null : null}
+              </tr>
+            ));
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TablaFactoresCirugias({ n }) {
+  const activas = CIRUGIAS_TRAZADORAS.filter((c) => n.cirugias[c.key]?.siNo === "SI");
+  if (activas.length === 0) return null;
+  return (
+    <div className="mb-3">
+      <table className="w-full border-collapse text-[11px]">
+        <thead>
+          <tr style={OFI.header}>
+            <th className={OFI.th} colSpan={5} style={{ textAlign: "left" }}>Factores de riesgo asociado a cirugías o procedimientos de vigilancia IAAS</th>
+          </tr>
+          <tr style={OFI.header}>
+            <th className={OFI.th}>Cx/Procedimiento</th>
+            <th className={OFI.th}>SI/NO</th>
+            <th className={OFI.th}>Fecha Cx</th>
+            <th className={OFI.th}>MO</th>
+            <th className={OFI.th}>Criterios confirmación</th>
+          </tr>
+        </thead>
+        <tbody>
+          {activas.map((c) => {
+            const v = n.cirugias[c.key];
+            return (
+              <tr key={c.key}>
+                <td className={OFI.td + " font-semibold"} style={{ background: "#f5d9c8" }}>{c.label}</td>
+                <td className={OFI.cellChk + " font-bold"}>{v.siNo}</td>
+                <td className={OFI.cellChk}>{v.fecha ? fmtDate(v.fecha) : ""}</td>
+                <td className={OFI.td}>{v.mo || ""}</td>
+                <td className={OFI.td}>{(v.criteriosMarcados || []).join(", ") || "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TablaFactoresArepi({ n }) {
+  const activos = AREPI_LIST.filter((a) => n.arepi[a.key]?.siNo === "SI");
+  if (activos.length === 0) return null;
+  return (
+    <div className="mb-3">
+      <table className="w-full border-collapse text-[11px]">
+        <thead>
+          <tr style={OFI.header}>
+            <th className={OFI.th} colSpan={6} style={{ textAlign: "left" }}>Factores asociados a Agentes de Riesgo Epidémico (AREpi)</th>
+          </tr>
+          <tr style={OFI.header}>
+            <th className={OFI.th}>AREpi</th>
+            <th className={OFI.th}>SI/NO</th>
+            <th className={OFI.th}>Fecha inicio síntomas</th>
+            <th className={OFI.th}>Servicio</th>
+            <th className={OFI.th}>Criterio confirmación</th>
+            <th className={OFI.th}>Cultivo/Examen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {activos.map((a) => {
+            const v = n.arepi[a.key];
+            return (
+              <tr key={a.key}>
+                <td className={OFI.td + " font-semibold"} style={{ background: "#f5d9c8" }}>{a.label}</td>
+                <td className={OFI.cellChk + " font-bold"}>{v.siNo}</td>
+                <td className={OFI.cellChk}>{v.fechaInicioSintomas ? fmtDate(v.fechaInicioSintomas) : ""}</td>
+                <td className={OFI.cellChk}>{v.servicio || ""}</td>
+                <td className={OFI.td}>{(v.criteriosMarcados || []).join(", ") || "—"}</td>
+                <td className={OFI.td}>{v.cultivoConfirmacion || ""}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function NotificacionPrintView({ notificacion: n, hospitalizacion, onClose }) {
   return (
     <div className="fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
       <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
@@ -3152,67 +3582,82 @@ function NotificacionPrintView({ notificacion: n, onClose }) {
         <div id="print-area" className="p-6 text-sm text-slate-800">
           <EncabezadoPDF titulo="FICHA DE NOTIFICACIÓN IAAS" subtitulo={`Fecha de notificación: ${fmtDate(n.fechaNotificacion)}`} />
 
-          <table className="w-full border-collapse text-xs mb-3">
+          {/* Cabecera de datos — formato oficial */}
+          <table className="w-full border-collapse text-xs mb-4" style={{ borderColor: "#000" }}>
             <tbody>
-              <tr><td className="border border-slate-300 px-2 py-1 font-semibold w-1/4">Nombre</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.nombre}</td></tr>
               <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">RUT</td><td className="border border-slate-300 px-2 py-1">{n.rut}</td>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Edad</td><td className="border border-slate-300 px-2 py-1">{n.edad}</td>
+                <td className="px-1 py-1 font-semibold" style={{ width: "12%" }}>Nombre:</td>
+                <td className="px-1 py-1 border-b border-slate-400" style={{ width: "48%" }}>{n.nombre}</td>
+                <td className="px-1 py-1 font-semibold" style={{ width: "12%" }}>Edad:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{n.edad}</td>
               </tr>
               <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Previsión</td><td className="border border-slate-300 px-2 py-1">{n.prevision}</td>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Servicio</td><td className="border border-slate-300 px-2 py-1">{n.servicio}</td>
+                <td className="px-1 py-1 font-semibold">Rut:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{n.rut}</td>
+                <td className="px-1 py-1 font-semibold">Previsión:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{n.prevision}</td>
               </tr>
               <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">F. ingreso</td><td className="border border-slate-300 px-2 py-1">{fmtDate(n.fechaIngreso)}</td>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Días estadía</td><td className="border border-slate-300 px-2 py-1">{n.diasEstadia}</td>
+                <td className="px-1 py-1 font-semibold">Servicio clínico:</td>
+                <td className="px-1 py-1 border-b border-slate-400" colSpan={3}>{n.servicio}</td>
               </tr>
-              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">F. egreso</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.fechaEgreso ? fmtDate(n.fechaEgreso) : "En curso"}</td></tr>
-              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico ingreso</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.diagnosticoIngreso}</td></tr>
-              <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico IAAS</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{n.diagnosticoIAAS}</td></tr>
               <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Falleció</td><td className="border border-slate-300 px-2 py-1">{n.fallecio || "—"}</td>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Categoría</td><td className="border border-slate-300 px-2 py-1">{n.categoria || "—"}</td>
+                <td className="px-1 py-1 font-semibold">Fecha de Ingreso:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{fmtDate(n.fechaIngreso)}</td>
+                <td className="px-1 py-1 font-semibold">Días estadía:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{n.diasEstadia}</td>
+              </tr>
+              <tr>
+                <td className="px-1 py-1 font-semibold">Fecha Egreso:</td>
+                <td className="px-1 py-1 border-b border-slate-400" colSpan={3}>{n.fechaEgreso ? fmtDate(n.fechaEgreso) : "En curso"}</td>
+              </tr>
+              <tr>
+                <td className="px-1 py-1 font-semibold">Diagnóstico de ingreso:</td>
+                <td className="px-1 py-1 border-b border-slate-400" colSpan={3}>{n.diagnosticoIngreso}</td>
+              </tr>
+              <tr>
+                <td className="px-1 py-1 font-semibold">Diagnóstico IAAS:</td>
+                <td className="px-1 py-1 border-b border-slate-400" colSpan={3}>{n.diagnosticoIAAS}</td>
+              </tr>
+              <tr>
+                <td className="px-1 py-1 font-semibold">Falleció:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{n.fallecio || "—"}</td>
+                <td className="px-1 py-1 font-semibold">Categoría:</td>
+                <td className="px-1 py-1 border-b border-slate-400">{n.categoria || "—"}</td>
               </tr>
             </tbody>
           </table>
 
-          {dipActivos.length > 0 && (
-            <div className="mb-3">
-              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Factores de riesgo asociados a DIP</div>
-              {dipActivos.map(([key, v]) => (
-                <div key={key} className="text-xs mb-1.5">
-                  <b>{CRITERIOS_FOCOS[key].label}</b> — {v.diasCalendario} días · MO: {v.mo || "—"}
-                  <div className="text-slate-600">Criterios: {v.criteriosMarcados.join(", ") || "—"}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Factores de riesgo asociados a DIP — tabla oficial con casillas */}
+          <TablaFactoresDIP n={n} />
 
-          {cxActivas.length > 0 && (
-            <div className="mb-3">
-              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Cirugías / procedimientos trazadores</div>
-              {cxActivas.map((c) => (
-                <div key={c.key} className="text-xs mb-1.5">
-                  <b>{c.label}</b> — {fmtDate(n.cirugias[c.key].fecha)} · MO: {n.cirugias[c.key].mo || "—"}
-                  <div className="text-slate-600">Criterios: {n.cirugias[c.key].criteriosMarcados.join(", ") || "—"}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Factores asociados a cirugías/procedimientos */}
+          <TablaFactoresCirugias n={n} />
 
-          {arepiActivos.length > 0 && (
-            <div className="mb-3">
-              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Agentes de Riesgo Epidémico (AREpi)</div>
-              {arepiActivos.map((a) => (
-                <div key={a.key} className="text-xs mb-1.5">
-                  <b>{a.label}</b> — inicio síntomas {fmtDate(n.arepi[a.key].fechaInicioSintomas)} · {n.arepi[a.key].servicio}
-                  <div className="text-slate-600">Criterios: {n.arepi[a.key].criteriosMarcados.join(", ") || "—"}</div>
-                  <div className="text-slate-600">Confirmación: {n.arepi[a.key].cultivoConfirmacion || "—"}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          {/* Factores AREpi */}
+          <TablaFactoresArepi n={n} />
+
+          {(() => {
+            const eventos = construirLineaTiempoVigilancia(hospitalizacion);
+            if (eventos.length === 0) return null;
+            return (
+              <div className="mb-3">
+                <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Historia de vigilancia (cronológica)</div>
+                <table className="w-full text-[11px] border-collapse">
+                  <tbody>
+                    {eventos.map((e, i) => (
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="py-0.5 pr-2 font-mono text-slate-500 align-top" style={{ width: "70px" }}>{e.fecha ? fmtDate(e.fecha) : "s/f"}</td>
+                        <td className="py-0.5 pr-2 font-bold align-top" style={{ width: "28px" }}>{e.tipo}</td>
+                        <td className="py-0.5">{e.texto}{!e.compartido ? ` · ${e.foco}` : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="text-[9px] text-slate-400 mt-0.5">EI = inespecífico · EE = específico · ED = definitivo</div>
+              </div>
+            );
+          })()}
 
           {n.resumenClinico && (
             <div className="mb-3">
@@ -3222,15 +3667,26 @@ function NotificacionPrintView({ notificacion: n, onClose }) {
           )}
 
           <div className="mb-6">
-            <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Confirmación de caso IAAS</div>
-            <div className="flex gap-4 text-xs mt-1">
-              {["SI", "NO", "NO CONCLUYENTE"].map((v) => (
-                <span key={v} className="flex items-center gap-1">
-                  <span className={`inline-block w-3 h-3 border border-slate-500 ${n.confirmacion === v ? "bg-slate-800" : ""}`} />
-                  {v}
-                </span>
-              ))}
-            </div>
+            <table className="w-full border-collapse text-[11px]">
+              <thead>
+                <tr style={{ background: "#f5d9c8" }}>
+                  <th className="border border-slate-500 px-1.5 py-1 text-left font-bold" colSpan={6}>Confirmación de caso IAAS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="border border-slate-400 px-2 py-1.5 font-semibold">SI</td>
+                  <td className="border border-slate-400 px-2 py-1.5 text-center" style={{ width: "36px" }}>{n.confirmacion === "SI" ? "✗" : ""}</td>
+                  <td className="border border-slate-400 px-2 py-1.5 font-semibold">NO</td>
+                  <td className="border border-slate-400 px-2 py-1.5 text-center" style={{ width: "36px" }}>{n.confirmacion === "NO" ? "✗" : ""}</td>
+                  <td className="border border-slate-400 px-2 py-1.5 font-semibold">NO CONCLUYENTE</td>
+                  <td className="border border-slate-400 px-2 py-1.5 text-center" style={{ width: "36px" }}>{n.confirmacion === "NO CONCLUYENTE" ? "✗" : ""}</td>
+                </tr>
+              </tbody>
+            </table>
+            {n.confirmacion && !n.avalMedico && (
+              <div className="text-[10px] text-amber-700 mt-1">Confirmada por {n.confirmadoPorRol === "enfermera" ? "enfermera IAAS" : "—"} · pendiente de aval médico</div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-8 mt-12 text-xs">
@@ -4146,7 +4602,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
         <CierreForm hospitalizacion={hospitalizacion} onCancel={() => setClosing(false)} onConfirm={confirmarCierre} />
       )}
 
-      {viewingNotif && <NotificacionPrintView notificacion={viewingNotif} onClose={() => setViewingNotif(null)} />}
+      {viewingNotif && <NotificacionPrintView notificacion={viewingNotif} hospitalizacion={hospitalizacion} onClose={() => setViewingNotif(null)} />}
       {viewingFicha && <FichaVigilanciaPrintView hospitalizacion={hospitalizacion} onClose={() => setViewingFicha(false)} />}
     </div>
   );
@@ -4155,6 +4611,237 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
 /* ---------------------------------------------------------------------- */
 /* App principal                                                           */
 /* ---------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------- */
+/* Vista: Vigilancia de cirugías y procedimientos trazadores               */
+/* ---------------------------------------------------------------------- */
+
+function CirugiasView({ cirugias, onSave, onDelete }) {
+  const [editando, setEditando] = useState(null); // registro en edición o null
+  const [nuevo, setNuevo] = useState(false);
+
+  if (nuevo || editando) {
+    return (
+      <CirugiaForm
+        registro={editando || newCirugiaVigilancia()}
+        onCancel={() => {
+          setNuevo(false);
+          setEditando(null);
+        }}
+        onSave={(reg) => {
+          onSave(reg);
+          setNuevo(false);
+          setEditando(null);
+        }}
+        onDelete={onDelete}
+      />
+    );
+  }
+
+  const ordenadas = [...cirugias].sort((a, b) => (a.fechaProcedimiento < b.fechaProcedimiento ? 1 : -1));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-slate-800">Cirugías y procedimientos trazadores</h1>
+          <p className="text-xs text-slate-500">{cirugias.length} procedimiento(s) en vigilancia</p>
+        </div>
+        <button
+          onClick={() => setNuevo(true)}
+          className="rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold px-3.5 py-2 flex items-center gap-1.5 shrink-0"
+        >
+          <Plus size={16} /> Nuevo
+        </button>
+      </div>
+
+      {ordenadas.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white py-12 text-center">
+          <Syringe size={28} className="mx-auto text-slate-300 mb-2" />
+          <p className="text-sm text-slate-500">Aún no hay procedimientos en vigilancia.</p>
+          <button onClick={() => setNuevo(true)} className="mt-3 text-sm font-semibold text-teal-700 hover:underline">
+            Registrar primer procedimiento
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {ordenadas.map((c) => {
+            const cx = CIRUGIAS_TRAZADORAS.find((x) => x.key === c.tipoProcedimiento);
+            const carac = CARACTERISTICAS_CX.find((x) => x.key === c.caracteristica);
+            const diasControl = cx ? cx.diasSeguimiento : 30;
+            const sinAlta = !c.fechaAlta;
+            const diasDesde = c.fechaProcedimiento ? daysBetween(c.fechaProcedimiento, todayISO()) : 0;
+            const controlPendiente = sinAlta && diasDesde <= diasControl && !c.caracteristica;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setEditando(c)}
+                className={`w-full text-left rounded-xl border bg-white p-3.5 hover:shadow-sm ${
+                  c.iaas === "SI" ? "border-rose-300" : controlPendiente ? "border-amber-300" : "border-slate-200 hover:border-teal-400"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-800 text-sm truncate">{c.nombre || "Sin nombre"}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {c.rut || "s/RUT"} · {c.edad ? `${c.edad} años` : "edad ?"}
+                    </div>
+                    <div className="text-xs text-slate-600 mt-1">{cx ? cx.label : c.tipoProcedimiento || "Sin tipo"}</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Cx: {fmtDate(c.fechaProcedimiento)}
+                      {c.fechaControl ? ` · Control: ${fmtDate(c.fechaControl)}` : ""}
+                      {c.fechaAlta ? ` · Alta: ${fmtDate(c.fechaAlta)}` : ""}
+                    </div>
+                    {c.fuenteVigilancia && (
+                      <div className="text-[10px] text-sky-600 mt-0.5">
+                        Fuente: {FUENTES_VIGILANCIA.find((f) => f.key === c.fuenteVigilancia)?.label || c.fuenteVigilancia}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {c.iaas === "SI" && <Pill tone="red">IAAS</Pill>}
+                    {carac && (
+                      <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 border ${
+                        c.caracteristica === "2" ? "bg-rose-100 text-rose-700 border-rose-200" : c.caracteristica === "3" ? "bg-slate-100 text-slate-600 border-slate-300" : "bg-emerald-100 text-emerald-700 border-emerald-200"
+                      }`}>
+                        {c.caracteristica === "1" ? "S/INF" : c.caracteristica === "2" ? "C/INF" : "S/REG"}
+                      </span>
+                    )}
+                    {controlPendiente && <span className="text-[10px] font-semibold text-amber-600">control pend.</span>}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CirugiaForm({ registro, onCancel, onSave, onDelete }) {
+  const [c, setC] = useState(registro);
+  const set = (k, v) => setC((s) => ({ ...s, [k]: v }));
+  const esNuevo = !registro.nombre && !registro.rut;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+          <ArrowLeft size={18} />
+        </button>
+        <div>
+          <h1 className="text-lg font-bold text-slate-800">{esNuevo ? "Nuevo procedimiento" : "Editar procedimiento"}</h1>
+          <p className="text-xs text-slate-500">Vigilancia de cirugías trazadoras IAAS</p>
+        </div>
+      </div>
+
+      <SectionCard icon={ClipboardList} title="Datos del paciente y procedimiento">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Nombre" className="col-span-2">
+            <TextInput value={c.nombre} onChange={(e) => set("nombre", e.target.value)} placeholder="Nombre completo" />
+          </Field>
+          <Field label="RUT">
+            <TextInput value={c.rut} onChange={(e) => set("rut", e.target.value)} placeholder="12.345.678-9" />
+          </Field>
+          <Field label="Edad">
+            <TextInput value={c.edad} onChange={(e) => set("edad", e.target.value)} placeholder="Años" />
+          </Field>
+          <Field label="Tipo de procedimiento" className="col-span-2">
+            <Select value={c.tipoProcedimiento} onChange={(e) => set("tipoProcedimiento", e.target.value)}>
+              <option value="">Seleccionar…</option>
+              {CIRUGIAS_TRAZADORAS.map((cx) => (
+                <option key={cx.key} value={cx.key}>{cx.label}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Fecha procedimiento">
+            <TextInput type="date" value={c.fechaProcedimiento} onChange={(e) => set("fechaProcedimiento", e.target.value)} />
+          </Field>
+          <Field label="Fecha de control">
+            <TextInput type="date" value={c.fechaControl} onChange={(e) => set("fechaControl", e.target.value)} />
+          </Field>
+          <Field label="Fuente de la vigilancia" className="col-span-2">
+            <Select value={c.fuenteVigilancia} onChange={(e) => set("fuenteVigilancia", e.target.value)}>
+              <option value="">Seleccionar…</option>
+              {FUENTES_VIGILANCIA.map((f) => (
+                <option key={f.key} value={f.key}>{f.label}</option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      </SectionCard>
+
+      <SectionCard icon={CheckCircle2} title="Seguimiento y resultado">
+        <Field label="Característica del control">
+          <div className="flex flex-col gap-1.5 mt-1">
+            {CARACTERISTICAS_CX.map((car) => (
+              <button
+                key={car.key}
+                type="button"
+                onClick={() => set("caracteristica", car.key)}
+                className={`text-left text-sm rounded-lg border px-3 py-2 font-medium ${
+                  c.caracteristica === car.key ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-600"
+                }`}
+              >
+                {car.key} = {car.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          <Field label="Fecha de alta (fin de seguimiento)">
+            <TextInput type="date" value={c.fechaAlta} onChange={(e) => set("fechaAlta", e.target.value)} />
+          </Field>
+          <Field label="¿IAAS?">
+            <div className="flex gap-2 mt-1">
+              {["SI", "NO"].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => set("iaas", v)}
+                  className={`flex-1 rounded-lg border py-2 text-sm font-bold ${
+                    c.iaas === v ? (v === "SI" ? "bg-rose-600 text-white border-rose-600" : "bg-emerald-600 text-white border-emerald-600") : "border-slate-300 text-slate-600"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </Field>
+        </div>
+        {c.iaas === "SI" && (
+          <Field label="Microorganismo (si IAAS)" className="mt-2">
+            <TextInput value={c.mo} onChange={(e) => set("mo", e.target.value)} placeholder="Agente aislado" />
+          </Field>
+        )}
+        <Field label="Observaciones" className="mt-2">
+          <TextArea value={c.observaciones} onChange={(e) => set("observaciones", e.target.value)} placeholder="Notas del seguimiento…" />
+        </Field>
+      </SectionCard>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => onSave({ ...c, updatedAt: new Date().toISOString() })}
+          className="flex-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 flex items-center justify-center gap-2"
+        >
+          <Save size={15} /> Guardar
+        </button>
+      </div>
+
+      {!esNuevo && (
+        <button
+          onClick={() => {
+            if (window.confirm(`¿Eliminar el registro de ${c.nombre}?`)) onDelete(c.id);
+          }}
+          className="w-full rounded-lg border border-rose-200 text-rose-500 font-semibold text-xs py-2"
+        >
+          Eliminar registro
+        </button>
+      )}
+    </div>
+  );
+}
 
 function App() {
   const [loading, setLoading] = useState(true);
@@ -4204,7 +4891,8 @@ function App() {
     persist(list);
   };
 
-  const visibles = hospitalizaciones.filter((h) => !h.eliminado);
+  const visibles = hospitalizaciones.filter((h) => !h.eliminado && h.tipoRegistro !== "cirugia");
+  const cirugias = hospitalizaciones.filter((h) => !h.eliminado && h.tipoRegistro === "cirugia");
 
   const selected = hospitalizaciones.find((h) => h.id === selectedId);
 
@@ -4275,12 +4963,34 @@ function App() {
             onDelete={handleDelete}
           />
         )}
+        {view === "cirugias" && (
+          <CirugiasView
+            cirugias={cirugias}
+            onSave={(reg) => {
+              const existe = hospitalizaciones.some((h) => h.id === reg.id);
+              const list = existe ? hospitalizaciones.map((h) => (h.id === reg.id ? reg : h)) : [...hospitalizaciones, reg];
+              setHospitalizaciones(list);
+              persist(list);
+            }}
+            onDelete={(id) => {
+              const list = hospitalizaciones.map((h) => (h.id === id ? { ...h, eliminado: true, updatedAt: new Date().toISOString() } : h));
+              setHospitalizaciones(list);
+              persist(list);
+            }}
+          />
+        )}
+
         {view === "indicadores" && (
           <IndicadoresView
             hospitalizaciones={visibles}
-            onOpenCaso={(id) => {
-              setSelectedId(id);
-              setView("ficha");
+            cirugias={cirugias}
+            onOpenCaso={(id, tipo) => {
+              if (tipo === "cirugia") {
+                setView("cirugias");
+              } else {
+                setSelectedId(id);
+                setView("ficha");
+              }
             }}
           />
         )}
@@ -4300,6 +5010,7 @@ function App() {
         <div className="max-w-lg mx-auto bg-white border-t border-slate-200 flex shadow-[0_-2px_8px_rgba(0,0,0,0.04)]" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           {[
             { key: "censo", label: "Censo", icon: BedDouble },
+            { key: "cirugias", label: "Cirugías", icon: Syringe },
             { key: "indicadores", label: "Indicadores", icon: TrendingUp },
             { key: "historico", label: "Histórico", icon: History },
           ].map((t) => (
