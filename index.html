@@ -3095,8 +3095,34 @@ function LineaTiempoVigilancia({ hospitalizacion }) {
   );
 }
 
+/* Rellena campos faltantes de una notificación guardada con versión anterior,
+   para que el formulario no falle al acceder a estructuras que no existían. */
+function normalizarNotificacion(notif, h) {
+  const base = newNotificacion(h);
+  const out = { ...base, ...notif };
+  // Asegurar estructuras de focos DIP
+  out.dip = out.dip || {};
+  Object.keys(CRITERIOS_FOCOS).forEach((key) => {
+    out.dip[key] = { siNo: "", diasCalendario: "", criteriosMarcados: [], mo: "", ...(out.dip[key] || {}) };
+    if (!Array.isArray(out.dip[key].criteriosMarcados)) out.dip[key].criteriosMarcados = [];
+  });
+  // Asegurar cirugías
+  out.cirugias = out.cirugias || {};
+  CIRUGIAS_TRAZADORAS.forEach((c) => {
+    out.cirugias[c.key] = { siNo: "", fecha: "", mo: "", criteriosMarcados: [], ...(out.cirugias[c.key] || {}) };
+    if (!Array.isArray(out.cirugias[c.key].criteriosMarcados)) out.cirugias[c.key].criteriosMarcados = [];
+  });
+  // Asegurar AREpi
+  out.arepi = out.arepi || {};
+  AREPI_LIST.forEach((a) => {
+    out.arepi[a.key] = { siNo: "", fechaInicioSintomas: "", servicio: "", criteriosMarcados: [], cultivoConfirmacion: "", ...(out.arepi[a.key] || {}) };
+    if (!Array.isArray(out.arepi[a.key].criteriosMarcados)) out.arepi[a.key].criteriosMarcados = [];
+  });
+  return out;
+}
+
 function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
-  const [n, setN] = useState(notificacion || newNotificacion(hospitalizacion));
+  const [n, setN] = useState(() => (notificacion ? normalizarNotificacion(notificacion, hospitalizacion) : newNotificacion(hospitalizacion)));
 
   const setDip = (key, patch) => setN((s) => ({ ...s, dip: { ...s.dip, [key]: { ...s.dip[key], ...patch } } }));
   const setCx = (key, patch) => setN((s) => ({ ...s, cirugias: { ...s.cirugias, [key]: { ...s.cirugias[key], ...patch } } }));
@@ -3565,7 +3591,8 @@ function TablaFactoresArepi({ n }) {
   );
 }
 
-function NotificacionPrintView({ notificacion: n, hospitalizacion, onClose }) {
+function NotificacionPrintView({ notificacion, hospitalizacion, onClose }) {
+  const n = normalizarNotificacion(notificacion, hospitalizacion);
   return (
     <div className="fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
       <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
@@ -4669,12 +4696,13 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
         <div className="space-y-2">
           {ordenadas.map((c) => {
             const cx = CIRUGIAS_TRAZADORAS.find((x) => x.key === c.tipoProcedimiento);
-            const ultimoControl = (c.controles || [])[c.controles.length - 1];
+            const ctrls = c.controles || [];
+            const ultimoControl = ctrls[ctrls.length - 1];
             const caracKey = ultimoControl?.caracteristica;
             const diasControl = cx ? cx.diasSeguimiento : 30;
             const sinAlta = !c.fechaAlta;
             const diasDesde = c.fechaProcedimiento ? daysBetween(c.fechaProcedimiento, todayISO()) : 0;
-            const controlPendiente = sinAlta && diasDesde <= diasControl && (c.controles || []).length === 0;
+            const controlPendiente = sinAlta && diasDesde <= diasControl && ctrls.length === 0;
             return (
               <button
                 key={c.id}
@@ -4692,14 +4720,14 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
                     <div className="text-xs text-slate-600 mt-1">{cx ? cx.label : c.tipoProcedimiento || "Sin tipo"}</div>
                     <div className="text-[11px] text-slate-400 mt-0.5">
                       Cx: {fmtDate(c.fechaProcedimiento)}
-                      {(c.controles || []).length > 0 ? ` · ${c.controles.length} control(es)` : ""}
+                      {ctrls.length > 0 ? ` · ${ctrls.length} control(es)` : ""}
                       {c.fechaAlta ? ` · Alta: ${fmtDate(c.fechaAlta)}` : ""}
                     </div>
-                    {(c.controles || []).length > 0 && (
+                    {ctrls.length > 0 && ultimoControl && (
                       <div className="text-[10px] text-sky-600 mt-0.5">
-                        Último: {fmtDate(c.controles[c.controles.length - 1].fecha)}
-                        {c.controles[c.controles.length - 1].fuente
-                          ? ` · ${FUENTES_VIGILANCIA.find((f) => f.key === c.controles[c.controles.length - 1].fuente)?.label || ""}`
+                        Último: {fmtDate(ultimoControl.fecha)}
+                        {ultimoControl.fuente
+                          ? ` · ${FUENTES_VIGILANCIA.find((f) => f.key === ultimoControl.fuente)?.label || ""}`
                           : ""}
                       </div>
                     )}
