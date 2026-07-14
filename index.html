@@ -949,9 +949,7 @@ function newCirugiaVigilancia() {
     edad: "",
     tipoProcedimiento: "",
     fechaProcedimiento: todayISO(),
-    fechaControl: "",
-    fuenteVigilancia: "", // dónde se obtuvo la info del seguimiento
-    caracteristica: "",
+    controles: [], // [{fecha, fuente, caracteristica, hallazgos}]
     fechaAlta: "",
     iaas: "",
     mo: "",
@@ -959,6 +957,10 @@ function newCirugiaVigilancia() {
     updatedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   };
+}
+
+function newControlCx() {
+  return { id: uid(), fecha: todayISO(), fuente: "", caracteristica: "", hallazgos: "" };
 }
 
 const CARACTERISTICAS_CX = [
@@ -4667,11 +4669,12 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
         <div className="space-y-2">
           {ordenadas.map((c) => {
             const cx = CIRUGIAS_TRAZADORAS.find((x) => x.key === c.tipoProcedimiento);
-            const carac = CARACTERISTICAS_CX.find((x) => x.key === c.caracteristica);
+            const ultimoControl = (c.controles || [])[c.controles.length - 1];
+            const caracKey = ultimoControl?.caracteristica;
             const diasControl = cx ? cx.diasSeguimiento : 30;
             const sinAlta = !c.fechaAlta;
             const diasDesde = c.fechaProcedimiento ? daysBetween(c.fechaProcedimiento, todayISO()) : 0;
-            const controlPendiente = sinAlta && diasDesde <= diasControl && !c.caracteristica;
+            const controlPendiente = sinAlta && diasDesde <= diasControl && (c.controles || []).length === 0;
             return (
               <button
                 key={c.id}
@@ -4689,22 +4692,25 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
                     <div className="text-xs text-slate-600 mt-1">{cx ? cx.label : c.tipoProcedimiento || "Sin tipo"}</div>
                     <div className="text-[11px] text-slate-400 mt-0.5">
                       Cx: {fmtDate(c.fechaProcedimiento)}
-                      {c.fechaControl ? ` · Control: ${fmtDate(c.fechaControl)}` : ""}
+                      {(c.controles || []).length > 0 ? ` · ${c.controles.length} control(es)` : ""}
                       {c.fechaAlta ? ` · Alta: ${fmtDate(c.fechaAlta)}` : ""}
                     </div>
-                    {c.fuenteVigilancia && (
+                    {(c.controles || []).length > 0 && (
                       <div className="text-[10px] text-sky-600 mt-0.5">
-                        Fuente: {FUENTES_VIGILANCIA.find((f) => f.key === c.fuenteVigilancia)?.label || c.fuenteVigilancia}
+                        Último: {fmtDate(c.controles[c.controles.length - 1].fecha)}
+                        {c.controles[c.controles.length - 1].fuente
+                          ? ` · ${FUENTES_VIGILANCIA.find((f) => f.key === c.controles[c.controles.length - 1].fuente)?.label || ""}`
+                          : ""}
                       </div>
                     )}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {c.iaas === "SI" && <Pill tone="red">IAAS</Pill>}
-                    {carac && (
+                    {caracKey && (
                       <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 border ${
-                        c.caracteristica === "2" ? "bg-rose-100 text-rose-700 border-rose-200" : c.caracteristica === "3" ? "bg-slate-100 text-slate-600 border-slate-300" : "bg-emerald-100 text-emerald-700 border-emerald-200"
+                        caracKey === "2" ? "bg-rose-100 text-rose-700 border-rose-200" : caracKey === "3" ? "bg-slate-100 text-slate-600 border-slate-300" : "bg-emerald-100 text-emerald-700 border-emerald-200"
                       }`}>
-                        {c.caracteristica === "1" ? "S/INF" : c.caracteristica === "2" ? "C/INF" : "S/REG"}
+                        {caracKey === "1" ? "S/INF" : caracKey === "2" ? "C/INF" : "S/REG"}
                       </span>
                     )}
                     {controlPendiente && <span className="text-[10px] font-semibold text-amber-600">control pend.</span>}
@@ -4755,45 +4761,92 @@ function CirugiaForm({ registro, onCancel, onSave, onDelete }) {
               ))}
             </Select>
           </Field>
-          <Field label="Fecha procedimiento">
+          <Field label="Fecha procedimiento" className="col-span-2">
             <TextInput type="date" value={c.fechaProcedimiento} onChange={(e) => set("fechaProcedimiento", e.target.value)} />
-          </Field>
-          <Field label="Fecha de control">
-            <TextInput type="date" value={c.fechaControl} onChange={(e) => set("fechaControl", e.target.value)} />
-          </Field>
-          <Field label="Fuente de la vigilancia" className="col-span-2">
-            <Select value={c.fuenteVigilancia} onChange={(e) => set("fuenteVigilancia", e.target.value)}>
-              <option value="">Seleccionar…</option>
-              {FUENTES_VIGILANCIA.map((f) => (
-                <option key={f.key} value={f.key}>{f.label}</option>
-              ))}
-            </Select>
           </Field>
         </div>
       </SectionCard>
 
       <SectionCard icon={CheckCircle2} title="Seguimiento y resultado">
-        <Field label="Característica del control">
-          <div className="flex flex-col gap-1.5 mt-1">
-            {CARACTERISTICAS_CX.map((car) => (
-              <button
-                key={car.key}
-                type="button"
-                onClick={() => set("caracteristica", car.key)}
-                className={`text-left text-sm rounded-lg border px-3 py-2 font-medium ${
-                  c.caracteristica === car.key ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-600"
-                }`}
-              >
-                {car.key} = {car.label}
-              </button>
-            ))}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold text-slate-600">Controles de seguimiento</span>
+          <button
+            type="button"
+            onClick={() => set("controles", [...(c.controles || []), newControlCx()])}
+            className="text-[11px] font-semibold text-teal-700 hover:underline"
+          >
+            + Agregar control
+          </button>
+        </div>
+
+        {(c.controles || []).length === 0 ? (
+          <p className="text-[11px] text-slate-400 mb-3">
+            Sin controles registrados. Agrega uno por cada instancia de vigilancia (control post-alta, urgencia, curación, reingreso…).
+          </p>
+        ) : (
+          <div className="space-y-2 mb-3">
+            {(c.controles || []).map((ctrl, i) => {
+              const upd = (patch) => {
+                const list = [...c.controles];
+                list[i] = { ...list[i], ...patch };
+                set("controles", list);
+              };
+              return (
+                <div key={ctrl.id || i} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500">Control {i + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => set("controles", c.controles.filter((_, j) => j !== i))}
+                      className="text-rose-400 text-[11px] hover:text-rose-600"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Fecha">
+                      <TextInput type="date" value={ctrl.fecha} onChange={(e) => upd({ fecha: e.target.value })} />
+                    </Field>
+                    <Field label="Fuente">
+                      <Select value={ctrl.fuente} onChange={(e) => upd({ fuente: e.target.value })}>
+                        <option value="">Seleccionar…</option>
+                        {FUENTES_VIGILANCIA.map((f) => (
+                          <option key={f.key} value={f.key}>{f.label}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                  <Field label="Característica" className="mt-1.5">
+                    <div className="flex gap-1.5">
+                      {CARACTERISTICAS_CX.map((car) => (
+                        <button
+                          key={car.key}
+                          type="button"
+                          onClick={() => upd({ caracteristica: car.key })}
+                          className={`flex-1 text-[11px] rounded-lg border py-1.5 font-semibold ${
+                            ctrl.caracteristica === car.key ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-600 bg-white"
+                          }`}
+                          title={car.label}
+                        >
+                          {car.key === "1" ? "S/INF" : car.key === "2" ? "C/INF" : "S/REG"}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="Hallazgos" className="mt-1.5">
+                    <TextInput value={ctrl.hallazgos || ""} onChange={(e) => upd({ hallazgos: e.target.value })} placeholder="Ej: herida limpia, sin signos…" />
+                  </Field>
+                </div>
+              );
+            })}
           </div>
-        </Field>
-        <div className="grid grid-cols-2 gap-3 mt-2">
+        )}
+
+        <div className="grid grid-cols-2 gap-3 mt-2 border-t border-slate-100 pt-3">
           <Field label="Fecha de alta (fin de seguimiento)">
             <TextInput type="date" value={c.fechaAlta} onChange={(e) => set("fechaAlta", e.target.value)} />
           </Field>
-          <Field label="¿IAAS?">
+          <Field label="¿IAAS? (resultado final)">
             <div className="flex gap-2 mt-1">
               {["SI", "NO"].map((v) => (
                 <button
