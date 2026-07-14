@@ -446,6 +446,13 @@ function construirLineaTiempoVigilancia(hospitalizacion) {
 // se preguntan una sola vez por visita y se aplican a todos los focos correspondientes.
 const ELEMENTOS_COMPARTIDOS = {
   fiebre: { texto: "Fiebre ≥ 38 °C axilar" },
+  hipotermia: { texto: "Hipotermia ≤ 36 °C axilar" },
+  taquiBradi: { texto: "Taquicardia o bradicardia" },
+  hipotension: { texto: "Hipotensión" },
+  compromisoConciencia: { texto: "Compromiso de conciencia" },
+  leucocitosis: { texto: "Leucocitosis o leucopenia" },
+  apnea: { texto: "Apnea (menor de 1 año)" },
+  calofrios: { texto: "Calofríos" },
 };
 const ELEMENTOS_COMPARTIDOS_IDS = Object.keys(ELEMENTOS_COMPARTIDOS);
 
@@ -718,31 +725,34 @@ function alertasDePaciente(h) {
 
   // 2) Elementos de criterio presentes SIN diagnóstico cerrado, dentro de la ventana de 5 días
   //    (fiebre + hemocultivo, leucocituria, etc. que aún no se han resuelto)
+  const esPasiva = h.modoVigilancia === "pasiva";
   const notificado = (h.notificaciones || []).length > 0;
-  Object.keys(CRITERIOS_FOCOS).forEach((focoKey) => {
-    const presentes = elementosPresentesFoco(h.criteriosIAAS, focoKey);
-    if (presentes.length === 0) return;
-    // fecha del elemento más reciente
-    const fechas = presentes.map((e) => e.fecha).filter(Boolean).sort();
-    const ultima = fechas[fechas.length - 1] || lastMovementDate(h);
-    const diasDesde = daysBetween(ultima, hoy);
-    if (!notificado && diasDesde <= 5) {
+  if (!esPasiva) {
+    Object.keys(CRITERIOS_FOCOS).forEach((focoKey) => {
+      const presentes = elementosPresentesFoco(h.criteriosIAAS, focoKey);
+      if (presentes.length === 0) return;
+      // fecha del elemento más reciente
+      const fechas = presentes.map((e) => e.fecha).filter(Boolean).sort();
+      const ultima = fechas[fechas.length - 1] || lastMovementDate(h);
+      const diasDesde = daysBetween(ultima, hoy);
+      if (!notificado && diasDesde <= 5) {
+        alertas.push({
+          nivel: "alta",
+          tipo: "criterio",
+          texto: `${CRITERIOS_FOCOS[focoKey].label}: ${presentes.length} elemento(s) presente(s) — completar dentro de la ventana de 5 días`,
+        });
+      }
+    });
+
+    // 3) Paciente sin visita reciente (seguimiento semanal mínimo) — solo vigilancia activa
+    const diasSinVisita = daysBetween(lastMovementDate(h), hoy);
+    if (diasSinVisita >= 7) {
       alertas.push({
-        nivel: "alta",
-        tipo: "criterio",
-        texto: `${CRITERIOS_FOCOS[focoKey].label}: ${presentes.length} elemento(s) presente(s) — completar dentro de la ventana de 5 días`,
+        nivel: "media",
+        tipo: "seguimiento",
+        texto: `Sin visita hace ${diasSinVisita} días — la vigilancia mínima es semanal`,
       });
     }
-  });
-
-  // 3) Paciente sin visita reciente (seguimiento semanal mínimo)
-  const diasSinVisita = daysBetween(lastMovementDate(h), hoy);
-  if (diasSinVisita >= 7) {
-    alertas.push({
-      nivel: "media",
-      tipo: "seguimiento",
-      texto: `Sin visita hace ${diasSinVisita} días — la vigilancia mínima es semanal`,
-    });
   }
 
   return alertas;
@@ -934,6 +944,7 @@ function newHospitalizacion() {
     evoluciones: [],
     criteriosIAAS: {},
     estado: "activo",
+    modoVigilancia: "activa", // "activa" | "pasiva"
     cierre: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -977,6 +988,37 @@ const FUENTES_VIGILANCIA = [
   { key: "procedimiento", label: "Sala de procedimiento / curaciones" },
   { key: "reingreso", label: "Reingreso" },
   { key: "ficha", label: "Revisión de ficha clínica" },
+];
+
+/* Diagnósticos IAAS del manual MINSAL (para lista desplegable en la notificación) */
+/* Criterios de confirmación por foco (según formato oficial de notificación HDC).
+   Se marcan como casillas en la notificación para corroborar el diagnóstico. */
+const CRITERIOS_CONFIRMACION_DIP = {
+  cup: ["Fiebre", "Leucocituria", "Sint. irritativo vesical", "Placa pus", "Dolor costo vertebral", "Piocitos", "Alteración estado conciencia en AM"],
+  cvc: ["Taquicardia o bradicardia", "Fiebre o hipotermia", "Apnea menor de 1 año", "Hipotensión", "Eritema y exudado sitio inserción CVC"],
+  vmi: ["Fiebre", "Infiltrado", "Leucocitosis o leucopenia", "Condensación", "Deterioro intercambio gaseoso", "Cavitación", "Expect. purulenta o aumento aspiración de secreciones", "Hemoptisis"],
+};
+
+const DIAGNOSTICOS_IAAS = [
+  "ITS/CVC — Infección torrente sanguíneo asociada a CVC",
+  "ITS/C Umb — Infección torrente sanguíneo asociada a catéter umbilical",
+  "ITU/CUP — Infección tracto urinario asociada a CUP",
+  "NAVMI — Neumonía asociada a ventilación mecánica invasiva",
+  "ISNC/VD-VE — Infección SNC asociada a válvula derivativa ventrículo externa",
+  "ISNC/VD-VP — Infección SNC asociada a válvula derivativa ventrículo peritoneal",
+  "IHO — Infección de herida operatoria (prótesis cadera)",
+  "IHO — Infección de herida operatoria (hernia inguinal)",
+  "IHO — Infección de herida operatoria (colecistectomía)",
+  "IHO — Infección de herida operatoria (cesárea)",
+  "Endometritis puerperal (parto vaginal)",
+  "Endometritis puerperal (cesárea)",
+  "Endoftalmitis (cirugía cataratas)",
+  "IRAVB — Infección respiratoria aguda viral baja en lactante",
+  "SDA — Síndrome diarreico agudo",
+  "SDA por C. difficile",
+  "IR SARS-CoV-2 — Infección respiratoria por SARS-CoV-2",
+  "ITS asociada a hemodiálisis por CHD",
+  "ITS asociada a quimioterapia por CVC",
 ];
 
 function emptyEvolucion() {
@@ -1512,6 +1554,11 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo }) {
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <Pill tone="teal">{h.servicio}</Pill>
+                      {h.modoVigilancia === "pasiva" && (
+                        <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 rounded px-1.5 py-0.5">
+                          Pasiva
+                        </span>
+                      )}
                       {nivel === "alta" && (
                         <Pill tone="red">
                           <AlertTriangle size={10} /> Revisar
@@ -2489,7 +2536,7 @@ function SeccionSignosGenerales({ estados, onUpdate, hospitalizacion }) {
     <SectionCard
       icon={AlertTriangle}
       title="Signos generales (inespecíficos)"
-      subtitle="Solo orientan la búsqueda. No definen el foco: eso se decide en la notificación."
+      subtitle="Hallazgos del paciente, no atados a ningún dispositivo. Marca los presentes con su fecha; orientan la búsqueda."
     >
       <div className="space-y-1.5">
         {ELEMENTOS_COMPARTIDOS_IDS.map((id) => (
@@ -3128,7 +3175,12 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
   const setCx = (key, patch) => setN((s) => ({ ...s, cirugias: { ...s.cirugias, [key]: { ...s.cirugias[key], ...patch } } }));
   const setAr = (key, patch) => setN((s) => ({ ...s, arepi: { ...s.arepi, [key]: { ...s.arepi[key], ...patch } } }));
 
-  const puedeGuardar = n.diagnosticoIAAS.trim() && n.confirmacion;
+  // Focos en "SI" deben tener al menos un criterio de confirmación marcado
+  const focosSinCriterios = Object.keys(CRITERIOS_FOCOS).filter(
+    (key) => n.dip[key]?.siNo === "SI" && (n.dip[key]?.criteriosMarcados || []).length === 0
+  );
+  const criteriosCompletos = focosSinCriterios.length === 0;
+  const puedeGuardar = n.diagnosticoIAAS.trim() && n.confirmacion && criteriosCompletos;
 
   return (
     <div className="space-y-4">
@@ -3165,7 +3217,27 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
           <TextInput value={n.diagnosticoIngreso} onChange={(e) => setN({ ...n, diagnosticoIngreso: e.target.value })} />
         </Field>
         <Field label="Diagnóstico IAAS — obligatorio">
-          <TextInput value={n.diagnosticoIAAS} onChange={(e) => setN({ ...n, diagnosticoIAAS: e.target.value })} placeholder="Ej. ITU asociada a CUP" />
+          <Select
+            value={DIAGNOSTICOS_IAAS.includes(n.diagnosticoIAAS) ? n.diagnosticoIAAS : n.diagnosticoIAAS ? "__otros__" : ""}
+            onChange={(e) => {
+              if (e.target.value === "__otros__") setN({ ...n, diagnosticoIAAS: n.diagnosticoIAAS && DIAGNOSTICOS_IAAS.includes(n.diagnosticoIAAS) ? "" : n.diagnosticoIAAS });
+              else setN({ ...n, diagnosticoIAAS: e.target.value });
+            }}
+          >
+            <option value="">Seleccionar diagnóstico…</option>
+            {DIAGNOSTICOS_IAAS.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+            <option value="__otros__">Otros (especificar)</option>
+          </Select>
+          {(!DIAGNOSTICOS_IAAS.includes(n.diagnosticoIAAS) || n.diagnosticoIAAS === "") && (
+            <TextInput
+              value={n.diagnosticoIAAS}
+              onChange={(e) => setN({ ...n, diagnosticoIAAS: e.target.value })}
+              placeholder="Escribe el diagnóstico si no está en la lista"
+              className="mt-1.5"
+            />
+          )}
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Falleció">
@@ -3204,9 +3276,13 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
                     <button
                       key={v}
                       type="button"
-                      onClick={() => setDip(key, { siNo: v })}
+                      onClick={() => setDip(key, { siNo: n.dip[key].siNo === v ? "" : v })}
                       className={`text-xs rounded-full px-2.5 py-1 border font-semibold ${
-                        n.dip[key].siNo === v ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-500"
+                        n.dip[key].siNo === v
+                          ? v === "SI"
+                            ? "bg-rose-600 text-white border-rose-600"
+                            : "bg-emerald-600 text-white border-emerald-600"
+                          : "border-slate-300 text-slate-500"
                       }`}
                     >
                       {v}
@@ -3224,20 +3300,37 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
                       <TextInput value={n.dip[key].mo} onChange={(e) => setDip(key, { mo: e.target.value })} />
                     </Field>
                   </div>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Elementos observados en vigilancia (solo referencia)
+
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 mt-1">
+                    Criterios de confirmación — marca los presentes
                   </p>
-                  {n.dip[key].criteriosMarcados.length ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {n.dip[key].criteriosMarcados.map((c) => (
-                        <span key={c} className="text-[11px] rounded-full px-2.5 py-1 bg-slate-200 text-slate-700 font-medium">
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
-                      Sin elementos observados aún. Recuerda: los signos inespecíficos (fiebre, etc.) orientan pero no confirman; el foco lo define la junta.
+                  <div className="grid grid-cols-1 gap-1">
+                    {(CRITERIOS_CONFIRMACION_DIP[key] || []).map((crit) => {
+                      const marcado = (n.dip[key].criteriosMarcados || []).includes(crit);
+                      return (
+                        <button
+                          key={crit}
+                          type="button"
+                          onClick={() => {
+                            const actuales = n.dip[key].criteriosMarcados || [];
+                            const next = marcado ? actuales.filter((x) => x !== crit) : [...actuales, crit];
+                            setDip(key, { criteriosMarcados: next });
+                          }}
+                          className={`text-left text-xs rounded-lg border px-2.5 py-1.5 flex items-center gap-2 ${
+                            marcado ? "bg-teal-50 border-teal-400 text-teal-800" : "bg-white border-slate-200 text-slate-600"
+                          }`}
+                        >
+                          <span className={`inline-block w-3.5 h-3.5 rounded border shrink-0 ${marcado ? "bg-teal-600 border-teal-600" : "border-slate-400"}`}>
+                            {marcado && <span className="text-white text-[9px] leading-none block text-center">✓</span>}
+                          </span>
+                          {crit}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(n.dip[key].criteriosMarcados || []).length === 0 && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      Marca al menos un criterio de confirmación para sustentar el diagnóstico.
                     </p>
                   )}
                 </div>
@@ -3423,6 +3516,12 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
           </Field>
         </div>
       </SectionCard>
+
+      {n.confirmacion && !criteriosCompletos && (
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-1">
+          Para confirmar el caso, marca al menos un criterio de confirmación en los focos señalados como "SI".
+        </div>
+      )}
 
       <div className="flex gap-2 pb-4">
         <button onClick={onCancel} className="flex-1 rounded-lg border border-slate-300 text-slate-600 font-semibold text-sm py-2.5">
@@ -4375,6 +4474,35 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
         </div>
       </SectionCard>
 
+      {hospitalizacion.estado === "activo" && (
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-700">Modo de vigilancia</div>
+              <div className="text-[11px] text-slate-500">
+                {hospitalizacion.modoVigilancia === "pasiva"
+                  ? "Pasiva: registro simplificado (dispositivos + IAAS), sin visitas diarias."
+                  : "Activa: seguimiento completo con visitas y criterios."}
+              </div>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
+              {["activa", "pasiva"].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => onUpdate({ ...hospitalizacion, modoVigilancia: m, updatedAt: new Date().toISOString() })}
+                  className={`text-xs font-semibold rounded-lg px-3 py-1.5 border ${
+                    (hospitalizacion.modoVigilancia || "activa") === m ? "bg-teal-700 text-white border-teal-700" : "border-slate-300 text-slate-600"
+                  }`}
+                >
+                  {m === "activa" ? "Activa" : "Pasiva"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <SectionCard icon={Syringe} title="Dispositivos invasivos" defaultOpen={false}>
         <div className="space-y-3">
           <div>
@@ -4480,10 +4608,11 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
 
       <AislamientoCard hospitalizacion={hospitalizacion} onUpdate={onUpdate} />
 
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-            <Clock size={14} /> Evolución ({hospitalizacion.evoluciones.length} visita{hospitalizacion.evoluciones.length !== 1 ? "s" : ""})
+      {(hospitalizacion.modoVigilancia || "activa") === "activa" ? (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+              <Clock size={14} /> Evolución ({hospitalizacion.evoluciones.length} visita{hospitalizacion.evoluciones.length !== 1 ? "s" : ""})
           </h2>
           {hospitalizacion.estado === "activo" && (
             <button
@@ -4530,7 +4659,26 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
               ))}
           </div>
         )}
-      </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 p-3.5">
+          <div className="text-sm font-semibold text-sky-800 mb-1">Vigilancia pasiva</div>
+          <p className="text-[11px] text-sky-700 mb-2">
+            Registro simplificado: los días de dispositivo se cuentan de las fechas de instalación/retiro (arriba), y el
+            resultado se define notificando el caso. No requiere visitas diarias. Los días y casos suman a las tasas.
+          </p>
+          <div className="text-xs text-slate-600">
+            {DISPOSITIVOS.filter((d) => focoInstalado(hospitalizacion, d.key)).map((d) => (
+              <div key={d.key}>
+                <span className="font-semibold">{d.label}:</span> {focoDiasTotal(hospitalizacion, d.key)} días
+              </div>
+            ))}
+            {DISPOSITIVOS.filter((d) => focoInstalado(hospitalizacion, d.key)).length === 0 && (
+              <span className="text-slate-400">Registra el dispositivo con sus fechas arriba para contar los días.</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="flex items-center justify-between mb-2">
