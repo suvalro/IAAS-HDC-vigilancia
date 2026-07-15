@@ -371,7 +371,7 @@ const CRITERIOS_FOCOS = {
       titulo: "Clínica / laboratorio — se requieren al menos 2",
       elementos: [
         ELEMENTO_FIEBRE,
-        { id: "leucoAlterada", texto: "Leucopenia (<4.000) o leucocitosis (>12.000)" },
+        { id: "leucocitosis", texto: "Leucocitosis o leucopenia" },
         { id: "deterioroGaseoso", texto: "Deterioro del intercambio gaseoso no explicable por otra causa" },
         { id: "aspiradoPatogeno", texto: "Aspirado endotraqueal / BAL / cepillo con MO patógeno en recuento significativo" },
       ],
@@ -386,7 +386,9 @@ function gruposDeFoco(foco) {
 /* Clasifica el tipo de elemento según el grupo del foco (para la narrativa EI/EE/ED).
    grupoA = signos/síntomas o imagen (inespecíficos EI); grupoB = confirmación
    microbiológica o específicos (EE); grupoC = elemento definitivo (ED, ej. urocultivo). */
-function tipoElemento(focoKey, grupo) {
+function tipoElemento(focoKey, grupo, elId) {
+  // Los elementos compartidos (fiebre, leucocitosis, hipotensión…) son inespecíficos por definición
+  if (elId && ELEMENTOS_COMPARTIDOS_IDS.includes(elId)) return "EI";
   if (grupo === "grupoC") return "ED";
   if (grupo === "grupoB") return "EE";
   return "EI";
@@ -418,7 +420,7 @@ function construirLineaTiempoVigilancia(hospitalizacion) {
           if (estado?.estado !== "presente") return;
           eventos.push({
             fecha: estado.fecha || "",
-            tipo: tipoElemento(focoKey, g),
+            tipo: tipoElemento(focoKey, g, el.id),
             texto: el.texto,
             foco: foco.label,
             focoKey,
@@ -1127,6 +1129,7 @@ function emptyEvolucion() {
   return {
     id: uid(),
     fecha: todayISO(),
+    ubicacion: "",
     examenes: EXAMENES.reduce((a, e) => ({ ...a, [e.key]: "" }), {}),
     fechaExamenes: "",
     sedimentoOrina: SEDIMENTO.reduce((a, s) => ({ ...a, [s.key]: "" }), {}),
@@ -1817,7 +1820,7 @@ function IndicadoresProcedimientos({ procedimientos = [], desde, hasta, onOpenCa
       const f = p.fechaITS || "";
       return f >= desde && f <= hasta;
     });
-    const indice = dias > 0 ? (casos.length / dias) * 100 : 0;
+    const indice = dias > 0 ? (casos.length / dias) * 1000 : 0;
     return { t, regs, dias, casos, indice };
   }).filter((r) => r.dias > 0 || r.casos.length > 0);
 
@@ -1827,7 +1830,7 @@ function IndicadoresProcedimientos({ procedimientos = [], desde, hasta, onOpenCa
     <div className="rounded-xl border border-slate-200 bg-white p-3.5">
       <div className="font-bold text-sm text-slate-700 mb-1">Procedimientos ambulatorios periódicos</div>
       <p className="text-[11px] text-slate-500 mb-2">
-        Índice de ITS por 100 días/procedimiento del cuatrimestre (quimioterapia por CVC y hemodiálisis por CHD).
+        Índice de ITS por 1.000 días/procedimiento del cuatrimestre (quimioterapia por CVC y hemodiálisis por CHD).
       </p>
       <table className="w-full text-xs">
         <thead>
@@ -1835,7 +1838,7 @@ function IndicadoresProcedimientos({ procedimientos = [], desde, hasta, onOpenCa
             <th className="text-left py-1">Indicador</th>
             <th className="text-right py-1">ITS</th>
             <th className="text-right py-1">Días/proc.</th>
-            <th className="text-right py-1">Índice %</th>
+            <th className="text-right py-1">Índice ‰</th>
           </tr>
         </thead>
         <tbody>
@@ -1870,7 +1873,7 @@ function IndicadoresProcedimientos({ procedimientos = [], desde, hasta, onOpenCa
           ))}
         </tbody>
       </table>
-      <p className="text-[10px] text-slate-400 mt-2">Índice = (N° ITS ÷ total días/procedimiento) × 100</p>
+      <p className="text-[10px] text-slate-400 mt-2">Índice = (N° ITS ÷ total días/procedimiento) × 1.000</p>
     </div>
   );
 }
@@ -2050,7 +2053,7 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], procedimientos = []
       });
     });
     const casos = regs.filter((p) => p.its === "SI" && (p.fechaITS || "") >= desde && (p.fechaITS || "") <= hasta).length;
-    return { label: t.indicador, casos, dias, indice: dias > 0 ? (casos / dias) * 100 : 0 };
+    return { label: t.indicador, casos, dias, indice: dias > 0 ? (casos / dias) * 1000 : 0 };
   }).filter((r) => r.dias > 0 || r.casos > 0);
 
   const exportar = () => exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlobal, ituPorServicio, tendencia, arepiExport, cirugiasExport, procExport });
@@ -2437,7 +2440,7 @@ function exportarIndicadores({ anio, cuatri, desde, hasta, itsCvc, navmi, ituGlo
 
   if (procExport && procExport.length > 0) {
     lineas.push("");
-    lineas.push("Procedimientos ambulatorios,ITS,Dias/procedimiento,Indice x100");
+    lineas.push("Procedimientos ambulatorios,ITS,Dias/procedimiento,Indice x1000");
     procExport.forEach((r) => lineas.push(`${r.label.replace(/,/g, ";")},${r.casos},${r.dias},${r.indice.toFixed(2)}`));
   }
 
@@ -2927,9 +2930,18 @@ function EvolucionForm({ hospitalizacion, evolucionInicial, onCancel, onSave }) 
         </div>
       </div>
 
-      <Field label="Fecha de la visita">
-        <TextInput type="date" value={ev.fecha} onChange={(e) => setEv({ ...ev, fecha: e.target.value })} className="max-w-[180px]" />
-      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Fecha de la visita">
+          <TextInput type="date" value={ev.fecha} onChange={(e) => setEv({ ...ev, fecha: e.target.value })} />
+        </Field>
+        <Field label="Ubicación (servicio/cama)">
+          <TextInput
+            value={ev.ubicacion || ""}
+            onChange={(e) => setEv({ ...ev, ubicacion: e.target.value })}
+            placeholder={hospitalizacion.servicio ? `Ej: ${hospitalizacion.servicio}-3` : "Ej: UCI-3"}
+          />
+        </Field>
+      </div>
 
       {Object.keys(criterios).length > 0 && (
         <div className="space-y-3">
@@ -4222,9 +4234,32 @@ function AlertaAltaModal({ dias, nombre, onConfirmarAlta, onSigueHospitalizado }
 }
 
 /* Matriz horizontal: fechas en columnas, parámetros en filas (para el PDF) */
+const DIAS_POR_PAGINA = 4;
+
 function MatrizEvolucionHorizontal({ evoluciones }) {
-  const evs = [...evoluciones].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
-  if (evs.length === 0) return <div className="text-xs text-slate-500">Sin visitas registradas.</div>;
+  const todas = [...evoluciones].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+  if (todas.length === 0) return <div className="text-xs text-slate-500">Sin visitas registradas.</div>;
+
+  const bloques = [];
+  for (let i = 0; i < todas.length; i += DIAS_POR_PAGINA) bloques.push(todas.slice(i, i + DIAS_POR_PAGINA));
+
+  return (
+    <div>
+      {bloques.map((bloque, idx) => (
+        <div key={idx} className={idx < bloques.length - 1 ? "bloque-matriz" : ""}>
+          {bloques.length > 1 && (
+            <div className="text-[10px] text-slate-400 mb-1">
+              Visitas {idx * DIAS_POR_PAGINA + 1}–{idx * DIAS_POR_PAGINA + bloque.length} de {todas.length}
+            </div>
+          )}
+          <MatrizBloque evs={bloque} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MatrizBloque({ evs }) {
 
   const th = "border border-slate-300 px-1.5 py-1 text-center bg-slate-100 font-semibold whitespace-nowrap";
   const rowLabel = "border border-slate-300 px-1.5 py-1 font-semibold bg-slate-50 whitespace-nowrap text-left";
@@ -4255,6 +4290,14 @@ function MatrizEvolucionHorizontal({ evoluciones }) {
               ))}
             </tr>
           ))}
+          {evs.some((ev) => ev.ubicacion) && (
+            <tr>
+              <td className={rowLabel}>Ubicación</td>
+              {evs.map((ev) => (
+                <td key={ev.id} className={cell}>{ev.ubicacion || "—"}</td>
+              ))}
+            </tr>
+          )}
           {evs.some((ev) => ev.fechaExamenes) && (
             <tr>
               <td className={rowLabel}>Fecha muestra (labs)</td>
@@ -4431,8 +4474,16 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
               <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Diagnóstico</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.diagnostico || "—"}</td></tr>
               <tr><td className="border border-slate-300 px-2 py-1 font-semibold">Antecedentes mórbidos</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.antecedentes || "—"}</td></tr>
               <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Tipo de aislamiento</td><td className="border border-slate-300 px-2 py-1">{formatAislamientos(h)}</td>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Agentes IAAS</td><td className="border border-slate-300 px-2 py-1">{h.agentesIAAS || "—"}</td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Fecha de alta</td>
+                <td className="border border-slate-300 px-2 py-1">
+                  {h.cierre?.fechaAlta ? fmtDate(h.cierre.fechaAlta) : "En curso"}
+                </td>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Tipo de aislamiento</td>
+                <td className="border border-slate-300 px-2 py-1">{formatAislamientos(h)}</td>
+              </tr>
+              <tr>
+                <td className="border border-slate-300 px-2 py-1 font-semibold">Agentes IAAS y su resistencia</td>
+                <td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.agentesIAAS || "—"}</td>
               </tr>
             </tbody>
           </table>
@@ -4992,6 +5043,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
                   <div className="flex items-center justify-between mb-1.5">
                     <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                       <CalendarClock size={13} className="text-slate-400" /> {fmtDate(ev.fecha)}
+                      {ev.ubicacion && <span className="text-slate-400 font-normal">· {ev.ubicacion}</span>}
                     </div>
                     {hospitalizacion.estado === "activo" && (
                       <div className="flex items-center gap-3">
@@ -6075,6 +6127,11 @@ function App() {
         }
         @page ficha { size: A4 landscape; }
         .ficha-vigilancia-print { page: ficha; }
+        @media print {
+          .bloque-matriz { page-break-after: always; break-after: page; }
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; break-inside: avoid; }
+        }
       `}</style>
       <div className="bg-teal-800 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-2">
