@@ -828,11 +828,14 @@ function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio) {
       if (n.confirmacion !== "SI") return;
       const f = n.dip?.[focoKey];
       if (!f || f.siNo !== "SI") return;
-      const fechaN = n.fechaNotificacion || "";
+      // La fecha de la IAAS (inicio de síntomas) es la que ubica el caso en el período.
+      // Si no está registrada, se usa la fecha de notificación como respaldo.
+      const fechaN = n.fechaIAAS || n.fechaNotificacion || "";
       if (fechaN < desde || fechaN > hasta) return;
       if (servicio && servicioEnFecha(h, fechaN) !== servicio) return;
       listaCasos.push({
         pacienteId: h.id,
+        notifId: n.id,
         nombre: h.nombre,
         rut: h.rut,
         fecha: fechaN,
@@ -862,11 +865,11 @@ function casosArepi(hospitalizaciones, arepiKey, desde, hasta) {
       if (n.confirmacion !== "SI") return;
       const a = n.arepi?.[arepiKey];
       if (!a || a.siNo !== "SI") return;
-      const f = a.fechaInicioSintomas || n.fechaNotificacion || "";
+      const f = a.fechaInicioSintomas || n.fechaIAAS || n.fechaNotificacion || "";
       if (f < desde || f > hasta) return;
       const g = grupoEtarioPaciente(h, arepiKey);
       porGrupo[g] = (porGrupo[g] || 0) + 1;
-      listaCasos[g].push({ pacienteId: h.id, nombre: h.nombre, rut: h.rut, fecha: f, diagnostico: n.diagnosticoIAAS, avalMedico: n.avalMedico });
+      listaCasos[g].push({ pacienteId: h.id, notifId: n.id, nombre: h.nombre, rut: h.rut, fecha: f, diagnostico: n.diagnosticoIAAS, avalMedico: n.avalMedico });
       total += 1;
     });
   });
@@ -1044,6 +1047,7 @@ function newNotificacion(h) {
   return {
     id: uid(),
     fechaNotificacion: todayISO(),
+    fechaIAAS: "", // fecha del primer elemento / inicio de síntomas — la que cuenta para indicadores
     // autocompletado
     nombre: h.nombre,
     edad: h.edad,
@@ -1714,7 +1718,7 @@ function IndicadoresCirugias({ cirugias, desde, hasta, anio, cuatri, onOpenCaso 
   );
 }
 
-function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
+function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso, onEliminarCaso }) {
   const hoy = todayISO();
   const [anio, setAnio] = useState(hoy.slice(0, 4));
   const [cuatri, setCuatri] = useState(cuatriActual(hoy));
@@ -1810,9 +1814,9 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
 
       {/* Tarjetas de tasa principal */}
       <div className="grid grid-cols-1 gap-2">
-        <TasaCard titulo="ITS / CVC" subtitulo="Infección torrente sanguíneo asociada a CVC" data={itsCvc} onOpenCaso={onOpenCaso} />
-        <TasaCard titulo="NAVMI" subtitulo="Neumonía asociada a VMI" data={navmi} onOpenCaso={onOpenCaso} />
-        <TasaCard titulo="ITU / CUP (global)" subtitulo="Infección urinaria asociada a CUP" data={ituGlobal} onOpenCaso={onOpenCaso} />
+        <TasaCard titulo="ITS / CVC" subtitulo="Infección torrente sanguíneo asociada a CVC" data={itsCvc} onOpenCaso={onOpenCaso} onEliminarCaso={onEliminarCaso} />
+        <TasaCard titulo="NAVMI" subtitulo="Neumonía asociada a VMI" data={navmi} onOpenCaso={onOpenCaso} onEliminarCaso={onEliminarCaso} />
+        <TasaCard titulo="ITU / CUP (global)" subtitulo="Infección urinaria asociada a CUP" data={ituGlobal} onOpenCaso={onOpenCaso} onEliminarCaso={onEliminarCaso} />
       </div>
 
       {/* ITU/CUP por servicio */}
@@ -1845,14 +1849,29 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
                   (r.listaCasos || []).map((c, i) => (
                     <tr key={i} className="bg-slate-50">
                       <td colSpan={4} className="px-2 py-1.5">
-                        <button
-                          onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)}
-                          className="w-full text-left rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 hover:border-teal-400"
-                        >
-                          <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
-                          <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · {fmtDate(c.fecha)}</span>
-                          <span className="text-[10px] text-teal-600 font-semibold float-right">Revisar ›</span>
-                        </button>
+                        <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 flex items-center justify-between gap-2">
+                          <button onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)} className="text-left flex-1 min-w-0">
+                            <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
+                            <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · {fmtDate(c.fecha)}</span>
+                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)} className="text-[10px] text-teal-600 font-semibold">
+                              Revisar ›
+                            </button>
+                            {onEliminarCaso && (
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`¿Eliminar la notificación IAAS de ${c.nombre}?\n\nEl caso dejará de contar en los indicadores.`)) {
+                                    onEliminarCaso(c.pacienteId, c.notifId);
+                                  }
+                                }}
+                                className="text-[10px] text-rose-400 hover:text-rose-600 font-semibold"
+                              >
+                                Eliminar
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1929,14 +1948,29 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
                       casosFila.map((c, i) => (
                         <tr key={i} className="bg-slate-50">
                           <td colSpan={4} className="px-2 py-1.5">
-                            <button
-                              onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)}
-                              className="w-full text-left rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 hover:border-teal-400"
-                            >
-                              <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
-                              <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · {fmtDate(c.fecha)}</span>
-                              <span className="text-[10px] text-teal-600 font-semibold float-right">Revisar ›</span>
-                            </button>
+                            <div className="rounded-lg bg-white border border-slate-200 px-2.5 py-1.5 flex items-center justify-between gap-2">
+                              <button onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)} className="text-left flex-1 min-w-0">
+                                <span className="text-xs font-bold text-slate-800">{c.nombre || "Sin nombre"}</span>
+                                <span className="text-[11px] text-slate-500"> · {c.rut || "s/RUT"} · {fmtDate(c.fecha)}</span>
+                              </button>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)} className="text-[10px] text-teal-600 font-semibold">
+                                  Revisar ›
+                                </button>
+                                {onEliminarCaso && (
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`¿Eliminar la notificación IAAS de ${c.nombre}?\n\nEl caso dejará de contar en los indicadores.`)) {
+                                        onEliminarCaso(c.pacienteId, c.notifId);
+                                      }
+                                    }}
+                                    className="text-[10px] text-rose-400 hover:text-rose-600 font-semibold"
+                                  >
+                                    Eliminar
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1950,7 +1984,7 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
       </div>
 
       {/* Indicadores de cirugías trazadoras (IHO / endometritis) */}
-      <IndicadoresCirugias cirugias={cirugias} desde={desde} hasta={hasta} anio={anio} cuatri={cuatri} onOpenCaso={onOpenCaso} />
+      <IndicadoresCirugias cirugias={cirugias} desde={desde} hasta={hasta} anio={anio} cuatri={cuatri} onOpenCaso={onOpenCaso} onEliminarCaso={onEliminarCaso} />
 
       <button onClick={exportar} className="w-full rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-sm font-semibold py-2.5 flex items-center justify-center gap-2">
         <Download size={16} /> Exportar indicadores (CSV para el Comité)
@@ -1964,7 +1998,7 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], onOpenCaso }) {
   );
 }
 
-function TasaCard({ titulo, subtitulo, data, onOpenCaso }) {
+function TasaCard({ titulo, subtitulo, data, onOpenCaso, onEliminarCaso }) {
   const [abierto, setAbierto] = useState(false);
   const casos = data.listaCasos || [];
   return (
@@ -1989,25 +2023,33 @@ function TasaCard({ titulo, subtitulo, data, onOpenCaso }) {
       {abierto && casos.length > 0 && (
         <div className="border-t border-slate-100 bg-slate-50 p-2 space-y-1.5">
           {casos.map((c, i) => (
-            <button
-              key={i}
-              onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)}
-              className="w-full text-left rounded-lg bg-white border border-slate-200 px-3 py-2 hover:border-teal-400"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-800 truncate">{c.nombre || "Sin nombre"}</div>
-                  <div className="text-[11px] text-slate-500 truncate">
-                    {c.rut || "Sin RUT"} · {c.servicio || "—"} · {fmtDate(c.fecha)}
-                  </div>
-                  {c.diagnostico && <div className="text-[11px] text-slate-400 truncate">{c.diagnostico}</div>}
+            <div key={i} className="rounded-lg bg-white border border-slate-200 px-3 py-2 flex items-center justify-between gap-2">
+              <button onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)} className="flex-1 text-left min-w-0">
+                <div className="text-xs font-bold text-slate-800 truncate">{c.nombre || "Sin nombre"}</div>
+                <div className="text-[11px] text-slate-500 truncate">
+                  {c.rut || "Sin RUT"} · {c.servicio || "—"} · {fmtDate(c.fecha)}
                 </div>
-                <div className="flex flex-col items-end gap-0.5 shrink-0">
-                  <span className="text-[10px] text-teal-600 font-semibold">Revisar ›</span>
-                  {!c.avalMedico && <span className="text-[9px] text-amber-600 font-semibold">falta aval</span>}
-                </div>
+                {c.diagnostico && <div className="text-[11px] text-slate-400 truncate">{c.diagnostico}</div>}
+                {!c.avalMedico && <span className="text-[9px] text-amber-600 font-semibold">falta aval</span>}
+              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => onOpenCaso && onOpenCaso(c.pacienteId)} className="text-[10px] text-teal-600 font-semibold">
+                  Revisar ›
+                </button>
+                {onEliminarCaso && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`¿Eliminar la notificación IAAS de ${c.nombre}?\n\nEl caso dejará de contar en los indicadores. Esta acción no se puede deshacer.`)) {
+                        onEliminarCaso(c.pacienteId, c.notifId);
+                      }
+                    }}
+                    className="text-[10px] text-rose-400 hover:text-rose-600 font-semibold"
+                  >
+                    Eliminar
+                  </button>
+                )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}
@@ -3210,9 +3252,17 @@ function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
           <div><span className="text-slate-400 text-xs">F. ingreso:</span> {fmtDate(n.fechaIngreso)}</div>
           <div><span className="text-slate-400 text-xs">F. egreso:</span> {fmtDate(n.fechaEgreso) || "En curso"}</div>
         </div>
-        <Field label="Fecha de notificación">
-          <TextInput type="date" value={n.fechaNotificacion} onChange={(e) => setN({ ...n, fechaNotificacion: e.target.value })} className="max-w-[180px]" />
-        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Fecha de la IAAS (inicio síntomas)">
+            <TextInput type="date" value={n.fechaIAAS || ""} onChange={(e) => setN({ ...n, fechaIAAS: e.target.value })} />
+          </Field>
+          <Field label="Fecha de notificación">
+            <TextInput type="date" value={n.fechaNotificacion} onChange={(e) => setN({ ...n, fechaNotificacion: e.target.value })} />
+          </Field>
+        </div>
+        <p className="text-[11px] text-slate-500 -mt-1">
+          La <b>fecha de la IAAS</b> (primer elemento / inicio de síntomas) es la que cuenta para los indicadores. La fecha de notificación es administrativa.
+        </p>
         <Field label="Diagnóstico de ingreso">
           <TextInput value={n.diagnosticoIngreso} onChange={(e) => setN({ ...n, diagnosticoIngreso: e.target.value })} />
         </Field>
@@ -3693,7 +3743,7 @@ function TablaFactoresArepi({ n }) {
 function NotificacionPrintView({ notificacion, hospitalizacion, onClose }) {
   const n = normalizarNotificacion(notificacion, hospitalizacion);
   return (
-    <div className="fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
+    <div className="print-active fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
       <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de notificación IAAS</span>
@@ -3707,7 +3757,7 @@ function NotificacionPrintView({ notificacion, hospitalizacion, onClose }) {
           </div>
         </div>
 
-        <div id="print-area" className="p-6 text-sm text-slate-800">
+        <div id="print-area" className="notif-print p-6 text-sm text-slate-800">
           <EncabezadoPDF titulo="FICHA DE NOTIFICACIÓN IAAS" subtitulo={`Fecha de notificación: ${fmtDate(n.fechaNotificacion)}`} />
 
           {/* Cabecera de datos — formato oficial */}
@@ -4033,7 +4083,7 @@ function formatVmiParam(p) {
 function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
   const cateteres = h.dip?.cvc?.cateteres || [];
   return (
-    <div className="fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
+    <div className="print-active fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
       <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de vigilancia epidemiológica</span>
@@ -4413,7 +4463,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
       </div>
 
       <button
-        onClick={() => setViewingFicha(true)}
+        onClick={() => { setViewingNotif(null); setViewingFicha(true); }}
         className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 text-teal-700 font-semibold text-sm py-2"
       >
         <ClipboardList size={15} /> Vista previa / Imprimir ficha de vigilancia
@@ -4733,7 +4783,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
                     >
                       Editar
                     </button>
-                    <button onClick={() => setViewingNotif(n)} className="text-xs font-semibold text-slate-500 hover:underline">
+                    <button onClick={() => { setViewingFicha(false); setViewingNotif(n); }} className="text-xs font-semibold text-slate-500 hover:underline">
                       Vista previa / Imprimir
                     </button>
                   </div>
@@ -5138,8 +5188,8 @@ function App() {
       <style>{`
         @media print {
           body * { visibility: hidden; }
-          #print-area, #print-area * { visibility: visible; }
-          #print-area { position: absolute; top: 0; left: 0; width: 100%; padding: 16px; }
+          .print-active #print-area, .print-active #print-area * { visibility: visible; }
+          .print-active #print-area { position: absolute; top: 0; left: 0; width: 100%; padding: 16px; }
         }
         @page ficha { size: A4 landscape; }
         .ficha-vigilancia-print { page: ficha; }
@@ -5220,6 +5270,15 @@ function App() {
                 setSelectedId(id);
                 setView("ficha");
               }
+            }}
+            onEliminarCaso={(pacienteId, notifId) => {
+              const list = hospitalizaciones.map((h) =>
+                h.id === pacienteId
+                  ? { ...h, notificaciones: (h.notificaciones || []).filter((n) => n.id !== notifId), updatedAt: new Date().toISOString() }
+                  : h
+              );
+              setHospitalizaciones(list);
+              persist(list);
             }}
           />
         )}
