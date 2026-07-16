@@ -1144,6 +1144,40 @@ function emptyEvolucion() {
   };
 }
 
+/* Adapta un registro de cirugía o de procedimiento ambulatorio a la forma que
+   espera la ficha de notificación (que fue diseñada para hospitalizaciones). */
+function registroComoHospitalizacion(reg) {
+  const esCirugia = reg.tipoRegistro === "cirugia";
+  const tipoAmb = !esCirugia ? TIPOS_PROCEDIMIENTO_AMB.find((t) => t.key === reg.tipo) : null;
+  const cx = esCirugia ? CIRUGIAS_TRAZADORAS.find((c) => c.key === reg.tipoProcedimiento) : null;
+  return {
+    id: reg.id,
+    nombre: reg.nombre,
+    rut: reg.rut,
+    edad: reg.edad,
+    edadDias: "",
+    prevision: reg.prevision || "",
+    servicio: esCirugia ? "MQ" : reg.unidadInformante || "Ambulatorio",
+    traslados: [],
+    fechaHospitalizacion: esCirugia ? reg.fechaProcedimiento : reg.fechaIngresoVigilancia,
+    diagnostico: esCirugia ? cx?.label || "" : tipoAmb?.label || "",
+    antecedentes: "",
+    agentesIAAS: reg.mo || "",
+    dip: emptyDip(),
+    evoluciones: [],
+    criteriosIAAS: {},
+    aislamientos: [],
+    notificaciones: reg.notificaciones || [],
+    cierre: esCirugia
+      ? reg.fechaAlta
+        ? { fechaAlta: reg.fechaAlta }
+        : null
+      : reg.fechaEgresoVigilancia
+      ? { fechaAlta: reg.fechaEgresoVigilancia }
+      : null,
+  };
+}
+
 function newNotificacion(h) {
   const diasEstadia = daysBetween(h.fechaHospitalizacion, h.cierre?.fechaAlta || todayISO());
   return {
@@ -3506,6 +3540,94 @@ function normalizarNotificacion(notif, h) {
   return out;
 }
 
+/* Tarjeta de notificación IAAS reutilizable para registros de cirugía y ambulatorio.
+   Permite crear/editar la notificación oficial, ver su aval e imprimirla. */
+function NotificacionRegistroCard({ registro, onChange }) {
+  const [editando, setEditando] = useState(null); // notificación en edición
+  const [creando, setCreando] = useState(false);
+  const [imprimiendo, setImprimiendo] = useState(null);
+
+  const hAdapt = registroComoHospitalizacion(registro);
+  const notifs = registro.notificaciones || [];
+
+  const guardar = (n) => {
+    const existe = notifs.some((x) => x.id === n.id);
+    const lista = existe ? notifs.map((x) => (x.id === n.id ? n : x)) : [...notifs, n];
+    onChange({ ...registro, notificaciones: lista, updatedAt: new Date().toISOString() });
+    setEditando(null);
+    setCreando(false);
+  };
+
+  if (creando || editando) {
+    return (
+      <NotificacionForm
+        hospitalizacion={hAdapt}
+        notificacion={editando}
+        onCancel={() => {
+          setCreando(false);
+          setEditando(null);
+        }}
+        onSave={guardar}
+      />
+    );
+  }
+
+  return (
+    <>
+      <SectionCard icon={FileWarning} title="Notificación IAAS" defaultOpen={notifs.length > 0}>
+        <p className="text-[11px] text-slate-500 mb-2">
+          Confirmado el caso, confecciona la ficha oficial de notificación con sus criterios y el aval del médico IAAS.
+        </p>
+        {notifs.length === 0 ? (
+          <p className="text-[11px] text-slate-400 mb-2">Sin notificación registrada.</p>
+        ) : (
+          <div className="space-y-1.5 mb-2">
+            {notifs.map((n) => (
+              <div key={n.id} className="rounded-lg border border-slate-200 px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-700">{fmtDate(n.fechaNotificacion)}</div>
+                    <div className="text-xs text-slate-500 truncate">{n.diagnosticoIAAS || "Sin diagnóstico IAAS"}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Pill tone={n.confirmacion === "SI" ? "red" : n.confirmacion === "NO" ? "green" : "amber"}>
+                      {n.confirmacion || "Pendiente"}
+                    </Pill>
+                    {n.confirmacion &&
+                      (n.avalMedico ? (
+                        <span className="text-[9px] font-semibold text-emerald-600">✓ aval médico</span>
+                      ) : (
+                        <span className="text-[9px] font-semibold text-amber-600">falta aval</span>
+                      ))}
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-2">
+                  <button onClick={() => setEditando(n)} className="text-xs font-semibold text-teal-700 hover:underline">
+                    Editar
+                  </button>
+                  <button onClick={() => setImprimiendo(n)} className="text-xs font-semibold text-slate-500 hover:underline">
+                    Ver / Imprimir
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => setCreando(true)}
+          className="w-full rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs font-semibold py-2 hover:border-teal-400 hover:text-teal-700"
+        >
+          + Nueva notificación IAAS
+        </button>
+      </SectionCard>
+
+      {imprimiendo && (
+        <NotificacionPrintView notificacion={imprimiendo} hospitalizacion={hAdapt} onClose={() => setImprimiendo(null)} />
+      )}
+    </>
+  );
+}
+
 function NotificacionForm({ hospitalizacion, notificacion, onCancel, onSave }) {
   const [n, setN] = useState(() => (notificacion ? normalizarNotificacion(notificacion, hospitalizacion) : newNotificacion(hospitalizacion)));
 
@@ -5218,6 +5340,7 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
           setNuevo(false);
           setEditando(null);
         }}
+        onPersist={onSave}
         onDelete={onDelete}
       />
     );
@@ -5309,7 +5432,7 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
   );
 }
 
-function CirugiaForm({ registro, onCancel, onSave, onDelete }) {
+function CirugiaForm({ registro, onCancel, onSave, onPersist, onDelete }) {
   const [c, setC] = useState(registro);
   const set = (k, v) => setC((s) => ({ ...s, [k]: v }));
   const esNuevo = !registro.nombre && !registro.rut;
@@ -5456,6 +5579,16 @@ function CirugiaForm({ registro, onCancel, onSave, onDelete }) {
           <TextArea value={c.observaciones} onChange={(e) => set("observaciones", e.target.value)} placeholder="Notas del seguimiento…" />
         </Field>
       </SectionCard>
+
+      {c.iaas === "SI" && (
+        <NotificacionRegistroCard
+          registro={c}
+          onChange={(next) => {
+            setC(next);
+            if (onPersist) onPersist(next);
+          }}
+        />
+      )}
 
       <div className="flex gap-2">
         <button
@@ -5801,6 +5934,7 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
           setNuevo(false);
           setEditando(null);
         }}
+        onPersist={onSave}
         onDelete={onDelete}
       />
     );
@@ -5892,7 +6026,7 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
   );
 }
 
-function ProcedimientoForm({ registro, onCancel, onSave, onDelete }) {
+function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) {
   const [p, setP] = useState(registro);
   const set = (k, v) => setP((s) => ({ ...s, [k]: v }));
   const esNuevo = !registro.nombre && !registro.rut;
@@ -6032,6 +6166,16 @@ function ProcedimientoForm({ registro, onCancel, onSave, onDelete }) {
           <TextArea value={p.observaciones} onChange={(e) => set("observaciones", e.target.value)} placeholder="Notas de la vigilancia…" />
         </Field>
       </SectionCard>
+
+      {p.its === "SI" && (
+        <NotificacionRegistroCard
+          registro={p}
+          onChange={(next) => {
+            setP(next);
+            if (onPersist) onPersist(next);
+          }}
+        />
+      )}
 
       <button
         onClick={() => onSave({ ...p, updatedAt: new Date().toISOString() })}
