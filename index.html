@@ -537,8 +537,8 @@ const CIRUGIAS_TRAZADORAS = [
   { key: "herniaInguinal", label: "Hernia inguinal adulto (c/s malla)", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática", "Cultivo (+) de incisión o tejido subcutáneo (técnica aséptica)"], tipo: "IHO", diasSeguimiento: 30 },
   { key: "colecistectomiaLaparo", label: "Colecistectomía laparoscópica", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática", "Cultivo (+) de incisión o tejido subcutáneo (técnica aséptica)"], tipo: "IHO", diasSeguimiento: 30 },
   { key: "colecistectomiaLaparotomica", label: "Colecistectomía laparotómica", criterios: ["Presencia de pus (ED)", "Fiebre", "Sensibilidad o dolor", "Aumento de volumen", "Eritema o calor local", "Secreción seropurulenta o serohemática", "Cultivo (+) de incisión o tejido subcutáneo (técnica aséptica)"], tipo: "IHO", diasSeguimiento: 30 },
-  { key: "cesarea", label: "Cesárea (con/sin trabajo de parto)", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre", "Cultivo (+) de fluido o tejido endometrial (ED)"], tipo: "endometritis", diasSeguimiento: 10 },
-  { key: "partoVaginal", label: "Parto vaginal", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre", "Cultivo (+) de fluido o tejido endometrial (ED)"], tipo: "endometritis", diasSeguimiento: 10 },
+  { key: "cesarea", label: "Cesárea (con/sin trabajo de parto)", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre", "Cultivo (+) de fluido o tejido endometrial (ED)"], tipo: "endometritis", diasSeguimiento: 30 },
+  { key: "partoVaginal", label: "Parto vaginal", criterios: ["Sensibilidad o involución uterina", "Loquios purulentos o mal olor", "Fiebre", "Cultivo (+) de fluido o tejido endometrial (ED)"], tipo: "endometritis", diasSeguimiento: 30 },
   { key: "cataratas", label: "Cataratas (c/s LIO)", criterios: ["Dolor ocular", "Visión borrosa", "Hipopion", "ATB por 2 o más días (EI)", "Cultivo (+) de cámara anterior/posterior o humor vítreo (ED)"], tipo: "endoftalmitis", diasSeguimiento: 10 },
 ];
 
@@ -965,6 +965,7 @@ function newCirugiaVigilancia() {
     edad: "",
     tipoProcedimiento: "",
     fechaProcedimiento: todayISO(),
+    estado: "activo", // "activo" (en vigilancia) | "cerrado" (alta de vigilancia, archivado)
     controles: [], // [{fecha, fuente, caracteristica, hallazgos}]
     fechaAlta: "",
     iaas: "",
@@ -972,6 +973,26 @@ function newCirugiaVigilancia() {
     observaciones: "",
     updatedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
+  };
+}
+
+/* Plazo de vigilancia de una cirugía: 30 días para todas; 10 solo para cataratas. */
+function diasVigilanciaCx(reg) {
+  const cx = CIRUGIAS_TRAZADORAS.find((x) => x.key === reg.tipoProcedimiento);
+  return cx ? cx.diasSeguimiento : 30;
+}
+
+/* Estado del plazo: cuántos días van y si ya cumplió para dar el alta de vigilancia. */
+function plazoCirugia(reg) {
+  const requeridos = diasVigilanciaCx(reg);
+  const transcurridos = reg.fechaProcedimiento ? daysBetween(reg.fechaProcedimiento, todayISO()) : 0;
+  const enVigilancia = (reg.estado || "activo") === "activo";
+  return {
+    requeridos,
+    transcurridos,
+    restantes: Math.max(0, requeridos - transcurridos),
+    cumplido: enVigilancia && transcurridos >= requeridos, // toca revisar y dar alta
+    enVigilancia,
   };
 }
 
@@ -5326,6 +5347,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
 function CirugiasView({ cirugias, onSave, onDelete }) {
   const [editando, setEditando] = useState(null); // registro en edición o null
   const [nuevo, setNuevo] = useState(false);
+  const [pestana, setPestana] = useState("vigilancia"); // "vigilancia" | "historico"
 
   if (nuevo || editando) {
     return (
@@ -5346,14 +5368,25 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
     );
   }
 
-  const ordenadas = [...cirugias].sort((a, b) => (a.fechaProcedimiento < b.fechaProcedimiento ? 1 : -1));
+  const enVigilancia = cirugias.filter((c) => (c.estado || "activo") === "activo");
+  const archivadas = cirugias.filter((c) => c.estado === "cerrado");
+  const porRevisar = enVigilancia.filter((c) => plazoCirugia(c).cumplido);
+  const lista = pestana === "vigilancia" ? enVigilancia : archivadas;
+  const ordenadas = [...lista].sort((a, b) => (a.fechaProcedimiento < b.fechaProcedimiento ? 1 : -1));
+
+  const darAlta = (c) => {
+    if (!window.confirm(`¿Dar alta de vigilancia a ${c.nombre}?\n\nSe cierra el seguimiento y el registro pasa al histórico. Seguirá contando en los indicadores y podrás consultarlo para auditoría.`)) return;
+    onSave({ ...c, estado: "cerrado", fechaAlta: c.fechaAlta || todayISO(), updatedAt: new Date().toISOString() });
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-slate-800">Cirugías y procedimientos trazadores</h1>
-          <p className="text-xs text-slate-500">{cirugias.length} procedimiento(s) en vigilancia</p>
+          <p className="text-xs text-slate-500">
+            {enVigilancia.length} en vigilancia · {archivadas.length} archivada(s)
+          </p>
         </div>
         <button
           onClick={() => setNuevo(true)}
@@ -5361,6 +5394,59 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
         >
           <Plus size={16} /> Nuevo
         </button>
+      </div>
+
+      {porRevisar.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5">
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle size={15} className="text-amber-600" />
+            <span className="text-sm font-bold text-amber-800">
+              {porRevisar.length} cirugía(s) cumplieron el plazo de vigilancia
+            </span>
+          </div>
+          <p className="text-[11px] text-amber-700 mb-2">Revisa el caso y da el alta de vigilancia para archivarlo.</p>
+          <div className="space-y-1.5">
+            {porRevisar.map((c) => {
+              const pz = plazoCirugia(c);
+              const cx = CIRUGIAS_TRAZADORAS.find((x) => x.key === c.tipoProcedimiento);
+              return (
+                <div key={c.id} className="rounded-lg bg-white border border-amber-200 px-2.5 py-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-800 truncate">{c.nombre || "Sin nombre"}</div>
+                    <div className="text-[10px] text-slate-500 truncate">
+                      {cx ? cx.label : "—"} · Cx {fmtDate(c.fechaProcedimiento)} · día {pz.transcurridos} de {pz.requeridos}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={() => setEditando(c)} className="text-[11px] font-semibold text-teal-700 hover:underline">
+                      Revisar
+                    </button>
+                    <button onClick={() => darAlta(c)} className="text-[11px] font-semibold text-amber-700 hover:underline">
+                      Dar alta
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        {[
+          { k: "vigilancia", label: `En vigilancia (${enVigilancia.length})` },
+          { k: "historico", label: `Histórico (${archivadas.length})` },
+        ].map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setPestana(t.k)}
+            className={`text-xs font-semibold rounded-full px-3 py-1.5 border ${
+              pestana === t.k ? "bg-teal-700 text-white border-teal-700" : "bg-white border-slate-300 text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {ordenadas.length === 0 ? (
@@ -5378,16 +5464,13 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
             const ctrls = c.controles || [];
             const ultimoControl = ctrls[ctrls.length - 1];
             const caracKey = ultimoControl?.caracteristica;
-            const diasControl = cx ? cx.diasSeguimiento : 30;
-            const sinAlta = !c.fechaAlta;
-            const diasDesde = c.fechaProcedimiento ? daysBetween(c.fechaProcedimiento, todayISO()) : 0;
-            const controlPendiente = sinAlta && diasDesde <= diasControl && ctrls.length === 0;
+            const pz = plazoCirugia(c);
             return (
               <button
                 key={c.id}
                 onClick={() => setEditando(c)}
                 className={`w-full text-left rounded-xl border bg-white p-3.5 hover:shadow-sm ${
-                  c.iaas === "SI" ? "border-rose-300" : controlPendiente ? "border-amber-300" : "border-slate-200 hover:border-teal-400"
+                  c.iaas === "SI" ? "border-rose-300" : pz.cumplido ? "border-amber-300" : "border-slate-200 hover:border-teal-400"
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -5402,6 +5485,13 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
                       {ctrls.length > 0 ? ` · ${ctrls.length} control(es)` : ""}
                       {c.fechaAlta ? ` · Alta: ${fmtDate(c.fechaAlta)}` : ""}
                     </div>
+                    {pz.enVigilancia && (
+                      <div className={`text-[10px] mt-0.5 font-semibold ${pz.cumplido ? "text-amber-600" : "text-slate-400"}`}>
+                        {pz.cumplido
+                          ? `Cumplió ${pz.requeridos} días — revisar y dar alta`
+                          : `Día ${pz.transcurridos} de ${pz.requeridos} · faltan ${pz.restantes}`}
+                      </div>
+                    )}
                     {ctrls.length > 0 && ultimoControl && (
                       <div className="text-[10px] text-sky-600 mt-0.5">
                         Último: {fmtDate(ultimoControl.fecha)}
@@ -5420,7 +5510,11 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
                         {caracKey === "1" ? "S/INF" : caracKey === "2" ? "C/INF" : "S/REG"}
                       </span>
                     )}
-                    {controlPendiente && <span className="text-[10px] font-semibold text-amber-600">control pend.</span>}
+                    {!pz.enVigilancia && (
+                      <span className="text-[10px] font-bold rounded px-1.5 py-0.5 border bg-slate-100 text-slate-500 border-slate-300">
+                        Archivada
+                      </span>
+                    )}
                   </div>
                 </div>
               </button>
@@ -5579,6 +5673,50 @@ function CirugiaForm({ registro, onCancel, onSave, onPersist, onDelete }) {
           <TextArea value={c.observaciones} onChange={(e) => set("observaciones", e.target.value)} placeholder="Notas del seguimiento…" />
         </Field>
       </SectionCard>
+
+      {(() => {
+        const pz = plazoCirugia(c);
+        if (!pz.enVigilancia) {
+          return (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-slate-700">Vigilancia cerrada</div>
+                <div className="text-[11px] text-slate-500">
+                  Alta de vigilancia: {c.fechaAlta ? fmtDate(c.fechaAlta) : "—"} · archivada en histórico
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setC((x) => ({ ...x, estado: "activo" }))}
+                className="text-[11px] font-semibold text-teal-700 hover:underline shrink-0"
+              >
+                Reabrir
+              </button>
+            </div>
+          );
+        }
+        return (
+          <div className={`rounded-xl border p-3 ${pz.cumplido ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-700">Plazo de vigilancia</div>
+                <div className={`text-[11px] ${pz.cumplido ? "text-amber-700" : "text-slate-500"}`}>
+                  {pz.cumplido
+                    ? `Cumplió los ${pz.requeridos} días. Revisa y da el alta de vigilancia.`
+                    : `Día ${pz.transcurridos} de ${pz.requeridos} · faltan ${pz.restantes} días`}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setC((x) => ({ ...x, estado: "cerrado", fechaAlta: x.fechaAlta || todayISO() }))}
+                className="text-xs font-semibold rounded-lg px-3 py-2 border border-teal-700 text-teal-700 hover:bg-teal-50 shrink-0"
+              >
+                Dar alta
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {c.iaas === "SI" && (
         <NotificacionRegistroCard
