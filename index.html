@@ -1088,7 +1088,8 @@ const TIPOS_SESION = {
   hd_chd: [
     { key: "cvc_curacion", label: "Conexión por CVC + curación", exponeCVC: true, curacion: true },
     { key: "cvc_solo", label: "Solo conexión por CVC", exponeCVC: true, curacion: false },
-    { key: "curacion_sin_cvc", label: "Curación sin conexión por CVC (FAV)", exponeCVC: false, curacion: true },
+    { key: "curacion_sin_cvc", label: "Curación de CVC sin conexión (FAV)", exponeCVC: true, curacion: true },
+    { key: "fav_sin_curacion", label: "Solo por FAV (sin CVC, sin curación)", exponeCVC: false, curacion: false },
   ],
   quimio_cvc: [
     { key: "conexion", label: "Solo conexión", exponeCVC: true, curacion: false },
@@ -6530,54 +6531,62 @@ function CirugiaForm({ registro, onCancel, onSave, onPersist, onDelete }) {
 /* Vista: Procedimientos ambulatorios periódicos (quimio / hemodiálisis)   */
 /* ---------------------------------------------------------------------- */
 
-/* Exporta a Excel (CSV) el listado mensual de procedimientos ambulatorios. */
-function exportarAmbulatorioExcel(filas, mes, filtroLabel) {
-  const esc = (v) => `"${String(v === undefined || v === null ? "" : v).replace(/"/g, '""')}"`;
-  const L = [];
-  L.push(esc(`VIGILANCIA DE PROCEDIMIENTOS AMBULATORIOS - ${mesLargo(mes)} - ${filtroLabel}`));
-  L.push("");
-  L.push(["NOMBRE PACIENTE","RUT","EDAD","PROCEDIMIENTO","ACCESO VASCULAR","UNIDAD INFORMANTE",
-    "SESIONES DEL MES","DIAS/PROCEDIMIENTO","CURACIONES","HALLAZGOS","ITS (SI/NO)","MO"].map(esc).join(","));
-  filas.forEach((f) => {
-    L.push([f.p.nombre || "", f.p.rut || "", f.p.edad || "", f.tipoLabel, f.p.acceso || "",
-      f.p.unidadInformante || "", f.nSes, f.dias, f.nCuraciones,
-      f.hallazgos.length ? f.hallazgos.join(" / ") : "sin hallazgos",
-      f.itsEnMes ? "SI" : "NO", f.itsEnMes ? f.p.mo || "" : ""].map(esc).join(","));
-  });
-  L.push("");
-  L.push(["RESUMEN","PACIENTES","DIAS/PROC","ITS","INDICE x1000"].map(esc).join(","));
-  TIPOS_PROCEDIMIENTO_AMB.forEach((t) => {
-    const g = filas.filter((f) => f.p.tipo === t.key);
-    if (g.length === 0) return;
-    const d = g.reduce((a, x) => a + x.dias, 0);
-    const c = g.filter((x) => x.itsEnMes).length;
-    L.push([t.indicador, g.length, d, c, d > 0 ? ((c / d) * 1000).toFixed(2) : "0"].map(esc).join(","));
-  });
-  const blob = new Blob(["\uFEFF" + L.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `Ambulatorio_${filtroLabel.replace(/\s+/g, "_")}_${mes}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+/* Código que se escribe en cada día, según el formato institucional:
+   diálisis  TU/TR (tipo catéter) + X (conexión) o Y (curación)
+   quimio    P (punción) · R (retiro) · P/R · L (lavado) */
+function codigoSesion(p, ses) {
+  const acc = (p.acceso || "").toLowerCase();
+  if (p.tipo === "hd_chd") {
+    const pref = acc.includes("transitorio") ? "TR" : "TU";
+    if (ses.tipo === "cvc_solo") return pref + "X";
+    if (ses.tipo === "cvc_curacion") return pref + "XY";
+    if (ses.tipo === "curacion_sin_cvc") return pref + "Y";
+    if (ses.tipo === "fav_sin_curacion") return "FAV";
+    return pref;
+  }
+  if (ses.tipo === "conexion") return "P";
+  if (ses.tipo === "retiro") return "R";
+  if (ses.tipo === "conexion_retiro") return "P/R";
+  if (ses.tipo === "lavado") return "L";
+  return "";
 }
 
-/* Listado mensual de pacientes ambulatorios revisados — para revisión y auditoría. */
-function AmbulatorioListaPrintView({ procedimientos, mes, filtroTipo, onClose }) {
+/* Columna TIPO DIP del formato institucional */
+function tipoDipCorto(p) {
+  const acc = (p.acceso || "").toLowerCase();
+  if (p.tipo === "hd_chd") {
+    const base = acc.includes("transitorio") ? "TR" : "TU";
+    const conFav = (p.sesiones || []).some((x) => x.tipo === "curacion_sin_cvc" || x.tipo === "fav_sin_curacion");
+    return conFav ? base + "/FAV" : base;
+  }
+  if (acc.includes("reservorio")) return "CCR";
+  if (acc.includes("picc")) return "PICC";
+  if (acc.includes("tuneliz")) return "TU";
+  if (acc.includes("transitorio")) return "TR";
+  return p.acceso ? p.acceso.slice(0, 8) : "—";
+}
+
+function diasEnMes(mes) {
+  const [y, m] = mes.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+/* Arma las filas del formato calendario para un mes */
+function filasCalendarioAmb(procedimientos, tipoKey, mes) {
   const desde = mes + "-01";
   const hasta = mes + "-31";
-  const filtroLabel =
-    filtroTipo === "Todos" ? "Todas las unidades" : (TIPOS_PROCEDIMIENTO_AMB.find((t) => t.key === filtroTipo) || {}).label || filtroTipo;
-
-  const filas = procedimientos
-    .filter((p) => filtroTipo === "Todos" || p.tipo === filtroTipo)
+  return procedimientos
+    .filter((p) => p.tipo === tipoKey)
     .map((p) => {
-      const t = TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === p.tipo);
-      const sesMes = (p.sesiones || []).filter((x) => x.fecha >= desde && x.fecha <= hasta).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
-      const dias = diasProcedimiento(p, desde, hasta);
-      const conCuracion = sesMes.filter((x) => {
+      const sesMes = (p.sesiones || []).filter((x) => x.fecha >= desde && x.fecha <= hasta);
+      const porDia = {};
+      const diasExpuestos = new Set();
+      sesMes.forEach((x) => {
+        const d = parseInt(x.fecha.slice(8, 10), 10);
+        const cod = codigoSesion(p, x);
+        porDia[d] = porDia[d] ? porDia[d] + "/" + cod : cod;
         const def = tipoSesionDef(p.tipo, x.tipo);
-        return x.curacion || (def && def.curacion);
+        if (def && def.exponeCVC) diasExpuestos.add(d);
       });
       const hallazgos = [];
       sesMes.forEach((x) => {
@@ -6588,31 +6597,80 @@ function AmbulatorioListaPrintView({ procedimientos, mes, filtroTipo, onClose })
         });
       });
       const itsEnMes = p.its === "SI" && (p.fechaITS || "") >= desde && (p.fechaITS || "") <= hasta;
-      return { p, tipoLabel: t ? t.label : p.tipo || "", sesMes, nSes: sesMes.length, dias, nCuraciones: conCuracion.length, hallazgos, itsEnMes };
+      return { p, porDia, total: diasExpuestos.size, sesMes, hallazgos, itsEnMes };
     })
-    .filter((f) => f.nSes > 0 || f.itsEnMes)
+    .filter((f) => f.total > 0 || f.itsEnMes)
     .sort((a, b) => (a.p.nombre || "").localeCompare(b.p.nombre || ""));
+}
 
-  const th = "border border-slate-500 px-1.5 py-1 text-center font-bold";
-  const td = "border border-slate-400 px-1.5 py-1 align-top";
+/* Exporta el calendario mensual a Excel (CSV), con el formato institucional. */
+function exportarAmbulatorioExcel(procedimientos, mes, tipoKey) {
+  const esc = (v) => `"${String(v === undefined || v === null ? "" : v).replace(/"/g, '""')}"`;
+  const nd = diasEnMes(mes);
+  const L = [];
+  const tipos = tipoKey === "Todos" ? TIPOS_PROCEDIMIENTO_AMB.map((t) => t.key) : [tipoKey];
+  tipos.forEach((tk) => {
+    const t = TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === tk);
+    const filas = filasCalendarioAmb(procedimientos, tk, mes);
+    if (filas.length === 0) return;
+    const esHD = tk === "hd_chd";
+    L.push(esc("DIP EN PROCEDIMIENTOS ESPECIALES — " + t.label));
+    L.push(esc("MES/AÑO: " + mesLargo(mes)));
+    L.push(esc(esHD ? "X = CONEXIÓN · Y = CURACIÓN · FAV = DIÁLISIS POR FAV · TU = CATÉTER TUNELIZADO · TR = CATÉTER TRANSITORIO"
+                    : "P = PUNCIÓN · R = RETIRO · P/R = PUNCIÓN Y RETIRO · L = LAVADO · CCR = CATÉTER CON RESERVORIO"));
+    const cab = esHD ? ["NOMBRE", "RUT", "EDAD", "TIPO DIP"] : ["NOMBRE", "RUT", "TIPO DIP"];
+    for (let d = 1; d <= nd; d++) cab.push(String(d));
+    cab.push("TOTAL", "OBS", "IAAS");
+    L.push(cab.map(esc).join(","));
+    let totDias = 0, totIaas = 0;
+    filas.forEach((f) => {
+      const fila = esHD
+        ? [f.p.nombre || "", f.p.rut || "", f.p.edad || "", tipoDipCorto(f.p)]
+        : [f.p.nombre || "", f.p.rut || "", tipoDipCorto(f.p)];
+      for (let d = 1; d <= nd; d++) fila.push(f.porDia[d] || "");
+      const obs = [f.p.observaciones || "", f.hallazgos.length ? "Hallazgos: " + f.hallazgos.join("/") : ""]
+        .filter(Boolean).join(" · ");
+      fila.push(f.total, obs, f.itsEnMes ? "SI" : "NO");
+      totDias += f.total;
+      if (f.itsEnMes) totIaas += 1;
+      L.push(fila.map(esc).join(","));
+    });
+    L.push("");
+    L.push([`TOTAL DÍAS PROCEDIMIENTO`, totDias, "IAAS", totIaas, "TASA x1000",
+      totDias > 0 ? ((totIaas / totDias) * 1000).toFixed(2) : "0"].map(esc).join(","));
+    L.push("");
+  });
+  const blob = new Blob(["\uFEFF" + L.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `DIP_Ambulatorio_${mes}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* Planilla mensual de procedimientos ambulatorios — formato calendario institucional. */
+function AmbulatorioListaPrintView({ procedimientos, mes, filtroTipo, onClose }) {
+  const nd = diasEnMes(mes);
+  const tipos = filtroTipo === "Todos" ? TIPOS_PROCEDIMIENTO_AMB.map((t) => t.key) : [filtroTipo];
+
+  const th = "border border-slate-500 px-0.5 py-0.5 text-center font-bold";
+  const td = "border border-slate-400 px-0.5 py-0.5 text-center";
+  const tdL = "border border-slate-400 px-1 py-0.5 text-left";
   const grupo = { background: "#f5d9c8" };
 
-  const conHallazgos = [];
-  filas.forEach((f) => {
-    f.sesMes.forEach((x) => {
-      const hs = (x.hallazgos || []).filter((hh) => hh !== "sinAlteraciones");
-      if (hs.length) conHallazgos.push({ nombre: f.p.nombre, fecha: x.fecha, hs, antiseptico: x.antiseptico, obs: x.observaciones });
-    });
-  });
+  const bloques = tipos
+    .map((tk) => ({ tk, t: TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === tk), filas: filasCalendarioAmb(procedimientos, tk, mes) }))
+    .filter((b) => b.filas.length > 0);
 
   return (
     <div className="print-active fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
-      <div className="max-w-5xl mx-auto my-4 bg-white rounded-xl shadow-lg">
+      <div className="max-w-6xl mx-auto my-4 bg-white rounded-xl shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
-          <span className="text-sm font-bold text-slate-700">Ambulatorio — {mesLargo(mes)}</span>
+          <span className="text-sm font-bold text-slate-700">DIP ambulatorios — {mesLargo(mes)}</span>
           <div className="flex gap-2">
             <button
-              onClick={() => exportarAmbulatorioExcel(filas, mes, filtroLabel)}
+              onClick={() => exportarAmbulatorioExcel(procedimientos, mes, filtroTipo)}
               className="rounded-lg bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5"
             >
               Excel
@@ -6626,118 +6684,127 @@ function AmbulatorioListaPrintView({ procedimientos, mes, filtroTipo, onClose })
           </div>
         </div>
 
-        <div id="print-area" className="ficha-vigilancia-print p-6 text-sm text-slate-800">
-          <EncabezadoPDF
-            titulo="VIGILANCIA DE PROCEDIMIENTOS AMBULATORIOS"
-            subtitulo={`${mesLargo(mes)} · ${filtroLabel} · ${filas.length} paciente(s) revisado(s)`}
-          />
+        <div id="print-area" className="ficha-vigilancia-print p-4 text-sm text-slate-800">
+          <EncabezadoPDF titulo="DIP EN PROCEDIMIENTOS ESPECIALES" subtitulo={`MES/AÑO: ${mesLargo(mes)}`} />
 
-          {filas.length === 0 ? (
-            <p className="text-xs text-slate-500">Sin pacientes con registros en este mes.</p>
+          {bloques.length === 0 ? (
+            <p className="text-xs text-slate-500">Sin registros en este mes.</p>
           ) : (
-            <>
-              <table className="w-full border-collapse text-[10px]">
-                <thead>
-                  <tr style={grupo}>
-                    <th className={th}>NOMBRE PACIENTE</th>
-                    <th className={th}>RUT</th>
-                    <th className={th}>EDAD</th>
-                    <th className={th}>PROCEDIMIENTO</th>
-                    <th className={th}>ACCESO VASCULAR</th>
-                    <th className={th}>UNIDAD</th>
-                    <th className={th}>SESIONES</th>
-                    <th className={th}>DÍAS/PROC.</th>
-                    <th className={th}>CURACIONES</th>
-                    <th className={th}>HALLAZGOS</th>
-                    <th className={th}>ITS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filas.map((f) => (
-                    <tr key={f.p.id}>
-                      <td className={td}>{f.p.nombre || "—"}</td>
-                      <td className={td}>{f.p.rut || "—"}</td>
-                      <td className={td + " text-center"}>{f.p.edad || "—"}</td>
-                      <td className={td}>{f.tipoLabel}</td>
-                      <td className={td}>{f.p.acceso || "—"}</td>
-                      <td className={td}>{f.p.unidadInformante || "—"}</td>
-                      <td className={td + " text-center"}>{f.nSes}</td>
-                      <td className={td + " text-center font-semibold"}>{f.dias}</td>
-                      <td className={td + " text-center"}>{f.nCuraciones}</td>
-                      <td className={td}>{f.hallazgos.length ? f.hallazgos.join(", ") : "sin hallazgos"}</td>
-                      <td className={td + " text-center font-bold"}>{f.itsEnMes ? "SI" : "NO"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            bloques.map((b, bi) => {
+              const esHD = b.tk === "hd_chd";
+              const totDias = b.filas.reduce((a, f) => a + f.total, 0);
+              const totIaas = b.filas.filter((f) => f.itsEnMes).length;
+              const conHallazgos = [];
+              b.filas.forEach((f) => {
+                f.sesMes.forEach((x) => {
+                  const hs = (x.hallazgos || []).filter((hh) => hh !== "sinAlteraciones");
+                  if (hs.length) conHallazgos.push({ nombre: f.p.nombre, fecha: x.fecha, hs, antiseptico: x.antiseptico, obs: x.observaciones });
+                });
+              });
+              return (
+                <div key={b.tk} className={bi < bloques.length - 1 ? "mb-6 bloque-matriz" : "mb-4"}>
+                  <div className="font-bold text-[11px] mb-1">{b.t.label}</div>
+                  <div className="text-[9px] mb-1">
+                    {esHD
+                      ? "X = CONEXIÓN · Y = CURACIÓN · FAV = DIÁLISIS POR FAV · TU = CATÉTER TUNELIZADO · TR = CATÉTER TRANSITORIO"
+                      : "P = PUNCIÓN · R = RETIRO · P/R = PUNCIÓN Y RETIRO · L = LAVADO · CCR = CATÉTER CON RESERVORIO"}
+                  </div>
 
-              {conHallazgos.length > 0 && (
-                <div className="mt-4">
-                  <div className="text-[11px] font-bold uppercase mb-1">Detalle de curaciones con hallazgos</div>
-                  <table className="w-full border-collapse text-[10px]">
+                  <table className="w-full border-collapse text-[7px]" style={{ tableLayout: "fixed" }}>
                     <thead>
                       <tr style={grupo}>
-                        <th className={th}>FECHA</th>
-                        <th className={th}>PACIENTE</th>
-                        <th className={th}>HALLAZGOS</th>
-                        <th className={th}>ANTISÉPTICO / MATERIAL</th>
-                        <th className={th}>OBSERVACIONES</th>
+                        <th className={th} colSpan={esHD ? 3 : 2} style={{ width: esHD ? "130px" : "110px" }}>DATOS DEL PACIENTE</th>
+                        <th className={th} style={{ width: "34px" }}>TIPO DIP</th>
+                        <th className={th} colSpan={nd}>PROCEDIMIENTO</th>
+                        <th className={th} style={{ width: "22px" }}>TOTAL</th>
+                        <th className={th} style={{ width: "70px" }}>OBS</th>
+                        <th className={th} style={{ width: "22px" }}>IAAS</th>
+                      </tr>
+                      <tr style={grupo}>
+                        <th className={th} style={{ width: esHD ? "72px" : "70px" }}>NOMBRE</th>
+                        <th className={th} style={{ width: "40px" }}>RUT</th>
+                        {esHD && <th className={th} style={{ width: "18px" }}>EDAD</th>}
+                        <th className={th}></th>
+                        {Array.from({ length: nd }, (_, i) => (
+                          <th key={i} className={th}>{i + 1}</th>
+                        ))}
+                        <th className={th}></th>
+                        <th className={th}></th>
+                        <th className={th}></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {conHallazgos.map((c, i) => (
-                        <tr key={i}>
-                          <td className={td + " text-center"}>{fmtDate(c.fecha)}</td>
-                          <td className={td}>{c.nombre || "—"}</td>
-                          <td className={td}>
-                            {c.hs.map((hh) => (HALLAZGOS_CURACION.find((z) => z.key === hh) || {}).label || hh).join(", ")}
+                      {b.filas.map((f) => (
+                        <tr key={f.p.id}>
+                          <td className={tdL}>{f.p.nombre || "—"}</td>
+                          <td className={td}>{f.p.rut || "—"}</td>
+                          {esHD && <td className={td}>{f.p.edad || ""}</td>}
+                          <td className={td + " font-semibold"}>{tipoDipCorto(f.p)}</td>
+                          {Array.from({ length: nd }, (_, i) => (
+                            <td key={i} className={td} style={{ fontSize: "6px" }}>{f.porDia[i + 1] || ""}</td>
+                          ))}
+                          <td className={td + " font-bold"}>{f.total}</td>
+                          <td className={tdL} style={{ fontSize: "6px" }}>
+                            {[f.p.observaciones || "", f.hallazgos.length ? "Hallazgos: " + f.hallazgos.join("/") : ""]
+                              .filter(Boolean)
+                              .join(" · ")}
                           </td>
-                          <td className={td}>{c.antiseptico || "—"}</td>
-                          <td className={td}>{c.obs || "—"}</td>
+                          <td className={td + " font-bold"}>{f.itsEnMes ? "SI" : "NO"}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
-              )}
 
-              <div className="mt-4">
-                <table className="border-collapse text-[10px]" style={{ width: "auto" }}>
-                  <thead>
-                    <tr style={grupo}>
-                      <th className={th}>Indicador</th>
-                      <th className={th}>Pacientes</th>
-                      <th className={th}>Días/proc.</th>
-                      <th className={th}>ITS</th>
-                      <th className={th}>Índice x1.000</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {TIPOS_PROCEDIMIENTO_AMB.map((t) => {
-                      const g = filas.filter((f) => f.p.tipo === t.key);
-                      if (g.length === 0) return null;
-                      const d = g.reduce((a, x) => a + x.dias, 0);
-                      const c = g.filter((x) => x.itsEnMes).length;
-                      return (
-                        <tr key={t.key}>
-                          <td className={td + " font-semibold"}>{t.indicador}</td>
-                          <td className={td + " text-center"}>{g.length}</td>
-                          <td className={td + " text-center"}>{d}</td>
-                          <td className={td + " text-center"}>{c}</td>
-                          <td className={td + " text-center font-bold"}>{d > 0 ? ((c / d) * 1000).toFixed(2) : "0.00"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <p className="text-[9px] text-slate-500 mt-1">
-                  Índice = (ITS ÷ días/procedimiento) × 1.000. Las curaciones sin conexión por CVC no suman días/procedimiento.
-                </p>
-              </div>
-            </>
+                  <table className="border-collapse text-[9px] mt-2" style={{ width: "auto" }}>
+                    <tbody>
+                      <tr>
+                        <td className="border border-slate-400 px-2 py-1 font-semibold" style={grupo}>TOTAL DÍAS PROCEDIMIENTO</td>
+                        <td className="border border-slate-400 px-2 py-1 text-center">{totDias}</td>
+                        <td className="border border-slate-400 px-2 py-1 font-semibold" style={grupo}>IAAS</td>
+                        <td className="border border-slate-400 px-2 py-1 text-center">{totIaas}</td>
+                        <td className="border border-slate-400 px-2 py-1 font-semibold" style={grupo}>TASA x 1.000</td>
+                        <td className="border border-slate-400 px-2 py-1 text-center font-bold">
+                          {totDias > 0 ? ((totIaas / totDias) * 1000).toFixed(2) : "0.00"}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {conHallazgos.length > 0 && (
+                    <div className="mt-2">
+                      <div className="text-[9px] font-bold uppercase mb-0.5">Detalle de curaciones con hallazgos</div>
+                      <table className="w-full border-collapse text-[8px]">
+                        <thead>
+                          <tr style={grupo}>
+                            <th className={th} style={{ width: "50px" }}>FECHA</th>
+                            <th className={th}>PACIENTE</th>
+                            <th className={th}>HALLAZGOS</th>
+                            <th className={th}>ANTISÉPTICO / MATERIAL</th>
+                            <th className={th}>OBSERVACIONES</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {conHallazgos.map((c, i) => (
+                            <tr key={i}>
+                              <td className={td}>{fmtDate(c.fecha)}</td>
+                              <td className={tdL}>{c.nombre || "—"}</td>
+                              <td className={tdL}>
+                                {c.hs.map((hh) => (HALLAZGOS_CURACION.find((z) => z.key === hh) || {}).label || hh).join(", ")}
+                              </td>
+                              <td className={tdL}>{c.antiseptico || "—"}</td>
+                              <td className={tdL}>{c.obs || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
 
-          <div className="mt-10 flex justify-between text-[10px]">
+          <div className="mt-8 flex justify-between text-[9px]">
             <div className="text-center" style={{ width: "45%" }}>
               <div className="border-t border-slate-500 pt-1">Enfermera IAAS</div>
             </div>
