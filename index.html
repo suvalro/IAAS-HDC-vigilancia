@@ -1101,6 +1101,105 @@ const TIPOS_PROCEDIMIENTO_AMB = [
   },
 ];
 
+/* Tipos de sesión por procedimiento. "exponeCVC" marca si ese día cuenta como
+   día/procedimiento (exposición del catéter) para el denominador del índice. */
+const TIPOS_SESION = {
+  hd_chd: [
+    { key: "cvc_curacion", label: "Conexión por CVC + curación", exponeCVC: true, curacion: true },
+    { key: "cvc_solo", label: "Solo conexión por CVC", exponeCVC: true, curacion: false },
+    { key: "curacion_sin_cvc", label: "Curación sin conexión por CVC (FAV)", exponeCVC: false, curacion: true },
+  ],
+  quimio_cvc: [
+    { key: "conexion", label: "Solo conexión", exponeCVC: true, curacion: false },
+    { key: "conexion_retiro", label: "Conexión y retiro", exponeCVC: true, curacion: false },
+    { key: "retiro", label: "Solo retiro de Qmt", exponeCVC: true, curacion: false },
+    { key: "lavado", label: "Lavado de reservorio", exponeCVC: true, curacion: false },
+  ],
+};
+
+const HALLAZGOS_CURACION = [
+  { key: "sinAlteraciones", label: "Sin alteraciones" },
+  { key: "enrojecimiento", label: "Enrojecimiento" },
+  { key: "secrecion", label: "Secreción" },
+  { key: "dolor", label: "Dolor / sensibilidad" },
+  { key: "calorLocal", label: "Calor local" },
+  { key: "induracion", label: "Induración" },
+];
+
+function tipoSesionDef(tipoProc, keySesion) {
+  return (TIPOS_SESION[tipoProc] || []).find((x) => x.key === keySesion);
+}
+
+function newSesionAmb() {
+  return {
+    id: uid(),
+    fecha: todayISO(),
+    tipo: "",
+    curacion: false,
+    hallazgos: [],
+    antiseptico: "",
+    observaciones: "",
+  };
+}
+
+/* Días/procedimiento de un paciente en un rango: cuenta las sesiones con exposición
+   del catéter. Si el registro es antiguo (sin sesiones), usa los meses cargados a mano. */
+function diasProcedimiento(p, desde, hasta) {
+  const ses = p.sesiones || [];
+  if (ses.length > 0) {
+    return ses.filter((x) => {
+      if (!x.fecha || x.fecha < desde || x.fecha > hasta) return false;
+      const def = tipoSesionDef(p.tipo, x.tipo);
+      return def ? def.exponeCVC : false;
+    }).length;
+  }
+  return (p.periodos || []).reduce((acc, per) => {
+    const m = (per.mes || "") + "-01";
+    return m >= desde && m <= hasta ? acc + (parseInt(per.dias, 10) || 0) : acc;
+  }, 0);
+}
+
+/* Alertas de seguimiento de pacientes ambulatorios:
+   - Diálisis: revisión semanal (sin registro hace 7 días o más)
+   - Registro mensual: sin sesiones en el mes en curso
+   - Lavado de reservorio: se espera cada 3 meses */
+function alertasAmbulatorio(p) {
+  if (p.fechaEgresoVigilancia) return [];
+  const hoy = todayISO();
+  const ses = [...(p.sesiones || [])].filter((x) => x.fecha).sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  const ultima = ses[0];
+  const alertas = [];
+
+  // Pacientes cuyo único registro es el lavado: se espera cada 3 meses (90 días)
+  const soloLavado = ses.length > 0 && ses.every((x) => x.tipo === "lavado");
+
+  if (p.tipo === "hd_chd") {
+    const dias = ultima ? daysBetween(ultima.fecha, hoy) : null;
+    if (dias === null) {
+      alertas.push({ nivel: "media", texto: "Sin sesiones registradas — revisión semanal pendiente" });
+    } else if (dias >= 7) {
+      alertas.push({ nivel: dias >= 14 ? "alta" : "media", texto: `Sin registro hace ${dias} días — la revisión es semanal` });
+    }
+  } else if (soloLavado) {
+    const dias = daysBetween(ultima.fecha, hoy);
+    if (dias >= 90) alertas.push({ nivel: "media", texto: `Lavado de reservorio hace ${dias} días — se realiza cada 3 meses` });
+  } else {
+    const mesActual = hoy.slice(0, 7);
+    const tieneMes = ses.some((x) => (x.fecha || "").slice(0, 7) === mesActual);
+    if (!tieneMes) alertas.push({ nivel: "media", texto: "Sin registro en el mes en curso" });
+  }
+
+  // Hallazgos de curación en la última semana
+  ses.slice(0, 8).forEach((x) => {
+    const conHallazgo = (x.hallazgos || []).some((hh) => hh !== "sinAlteraciones");
+    if (conHallazgo && daysBetween(x.fecha, hoy) <= 7) {
+      alertas.push({ nivel: "alta", texto: `Hallazgos en curación del ${fmtDate(x.fecha)} — revisar sitio de inserción` });
+    }
+  });
+
+  return alertas;
+}
+
 function newProcedimientoAmb() {
   return {
     id: uid(),
@@ -1113,7 +1212,8 @@ function newProcedimientoAmb() {
     unidadInformante: "",
     fechaIngresoVigilancia: todayISO(),
     fechaEgresoVigilancia: "",
-    periodos: [], // [{mes:"2026-07", dias: 12}] días/procedimiento por mes
+    sesiones: [], // [{fecha, tipo, curacion, hallazgos[], antiseptico, observaciones}]
+    periodos: [], // (legado) días/procedimiento por mes cargados a mano
     its: "", // "SI" | "NO"
     fechaITS: "",
     mo: "",
@@ -1866,19 +1966,11 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo, onNuevoRapido }) {
 const SERVICIOS_ITU = ["Medicina", "MQ", "UPC"]; // desglose ITU/CUP por servicio
 
 function IndicadoresProcedimientos({ procedimientos = [], desde, hasta, onOpenCaso }) {
-  // Días/procedimiento del período: suma de los meses que caen dentro del cuatrimestre
-  const mesesEnRango = (per) => {
-    const m = (per.mes || "") + "-01";
-    return m >= desde && m <= hasta;
-  };
-
   const porTipo = TIPOS_PROCEDIMIENTO_AMB.map((t) => {
     const regs = procedimientos.filter((p) => p.tipo === t.key);
     let dias = 0;
     regs.forEach((p) => {
-      (p.periodos || []).filter(mesesEnRango).forEach((per) => {
-        dias += parseInt(per.dias, 10) || 0;
-      });
+      dias += diasProcedimiento(p, desde, hasta);
     });
     const casos = regs.filter((p) => {
       if (p.its !== "SI") return false;
@@ -2116,10 +2208,7 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], procedimientos = []
     const regs = procedimientos.filter((p) => p.tipo === t.key);
     let dias = 0;
     regs.forEach((p) => {
-      (p.periodos || []).forEach((per) => {
-        const m = (per.mes || "") + "-01";
-        if (m >= desde && m <= hasta) dias += parseInt(per.dias, 10) || 0;
-      });
+      dias += diasProcedimiento(p, desde, hasta);
     });
     const casos = regs.filter((p) => p.its === "SI" && (p.fechaITS || "") >= desde && (p.fechaITS || "") <= hasta).length;
     return { label: t.indicador, casos, dias, indice: dias > 0 ? (casos / dias) * 1000 : 0 };
@@ -6476,6 +6565,43 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
         </button>
       </div>
 
+      {(() => {
+        const pendientes = procedimientos
+          .map((p) => ({ p, al: alertasAmbulatorio(p) }))
+          .filter((x) => x.al.length > 0);
+        if (pendientes.length === 0) return null;
+        const dialisis = pendientes.filter((x) => x.p.tipo === "hd_chd");
+        return (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3.5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <AlertTriangle size={15} className="text-amber-600" />
+              <span className="text-sm font-bold text-amber-800">
+                {pendientes.length} paciente(s) con seguimiento pendiente
+              </span>
+            </div>
+            {dialisis.length > 0 && (
+              <p className="text-[11px] text-amber-700 mb-2">
+                Diálisis requiere revisión semanal — {dialisis.length} por revisar.
+              </p>
+            )}
+            <div className="space-y-1.5">
+              {pendientes.slice(0, 8).map(({ p, al }) => (
+                <button
+                  key={p.id}
+                  onClick={() => setEditando(p)}
+                  className="w-full text-left rounded-lg bg-white border border-amber-200 px-2.5 py-2 hover:border-teal-400"
+                >
+                  <div className="text-xs font-bold text-slate-800 truncate">{p.nombre || "Sin nombre"}</div>
+                  <div className={`text-[10px] ${al[0].nivel === "alta" ? "text-rose-600 font-semibold" : "text-amber-700"}`}>
+                    {al[0].texto}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="flex gap-2 overflow-x-auto pb-1">
         {["Todos", ...TIPOS_PROCEDIMIENTO_AMB.map((t) => t.key)].map((k) => {
           const t = TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === k);
@@ -6505,14 +6631,18 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
         <div className="space-y-2">
           {ordenados.map((p) => {
             const t = TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === p.tipo);
-            const totalDias = (p.periodos || []).reduce((s, x) => s + (parseInt(x.dias, 10) || 0), 0);
+            const totalDias = diasProcedimiento(p, "0000-01-01", "9999-12-31");
+            const nSes = (p.sesiones || []).length;
+            const ultima = [...(p.sesiones || [])].filter((x) => x.fecha).sort((a, b) => (a.fecha < b.fecha ? 1 : -1))[0];
+            const alertas = alertasAmbulatorio(p);
+            const alta = alertas.some((a) => a.nivel === "alta");
             const enCurso = !p.fechaEgresoVigilancia;
             return (
               <button
                 key={p.id}
                 onClick={() => setEditando(p)}
                 className={`w-full text-left rounded-xl border bg-white p-3.5 hover:shadow-sm ${
-                  p.its === "SI" ? "border-rose-300" : "border-slate-200 hover:border-teal-400"
+                  p.its === "SI" || alta ? "border-rose-300" : alertas.length > 0 ? "border-amber-300" : "border-slate-200 hover:border-teal-400"
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -6526,8 +6656,15 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
                       {p.acceso ? ` · ${p.acceso}` : ""}
                     </div>
                     <div className="text-[11px] text-slate-400 mt-0.5">
-                      {totalDias} día(s)/procedimiento acumulados · {(p.periodos || []).length} mes(es)
+                      {totalDias} día(s)/proc. · {nSes} sesión(es)
+                      {ultima ? ` · última ${fmtDate(ultima.fecha)}` : ""}
                     </div>
+                    {alertas.length > 0 && (
+                      <div className={`text-[10px] mt-1 font-semibold ${alta ? "text-rose-600" : "text-amber-600"}`}>
+                        {alertas[0].texto}
+                        {alertas.length > 1 ? ` (+${alertas.length - 1})` : ""}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     {t && <Pill tone="teal">{t.sigla}</Pill>}
@@ -6549,9 +6686,9 @@ function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) 
   const set = (k, v) => setP((s) => ({ ...s, [k]: v }));
   const esNuevo = !registro.nombre && !registro.rut;
   const tipoDef = TIPOS_PROCEDIMIENTO_AMB.find((t) => t.key === p.tipo);
-  const totalDias = (p.periodos || []).reduce((s, x) => s + (parseInt(x.dias, 10) || 0), 0);
-
-  const addPeriodo = () => set("periodos", [...(p.periodos || []), { id: uid(), mes: todayISO().slice(0, 7), dias: "" }]);
+  const sesiones = [...(p.sesiones || [])].sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+  const diasExpuestos = diasProcedimiento(p, "0000-01-01", "9999-12-31");
+  const alertas = alertasAmbulatorio(p);
 
   return (
     <div className="space-y-4">
@@ -6564,6 +6701,20 @@ function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) 
           <p className="text-xs text-slate-500">Vigilancia de procedimientos periódicos</p>
         </div>
       </div>
+
+      {alertas.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle size={15} className="text-amber-600" />
+            <span className="text-sm font-bold text-amber-800">Seguimiento pendiente</span>
+          </div>
+          {alertas.map((a, i) => (
+            <div key={i} className={`text-[11px] ${a.nivel === "alta" ? "text-rose-700 font-semibold" : "text-amber-700"}`}>
+              · {a.texto}
+            </div>
+          ))}
+        </div>
+      )}
 
       <SectionCard icon={ClipboardList} title="Datos del paciente">
         <div className="grid grid-cols-2 gap-3">
@@ -6606,48 +6757,147 @@ function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) 
         </div>
       </SectionCard>
 
-      <SectionCard icon={CalendarClock} title={`Días/procedimiento por mes — total ${totalDias}`} defaultOpen>
+      <SectionCard icon={CalendarClock} title={`Sesiones registradas — ${sesiones.length} · ${diasExpuestos} día(s)/proc.`} defaultOpen>
         <p className="text-[11px] text-slate-500 mb-2">
-          Ingresa el número de <b>días/procedimiento</b> de cada mes (dato que entrega la unidad). Es el denominador del índice.
-          Una sesión de HD = 1 día/proc. Una conexión + desconexión de quimio en días distintos = 2 días/proc.
+          Registra cada atención con su fecha y tipo. Los días con exposición del catéter son el denominador del índice;
+          las curaciones sin conexión por CVC (pacientes con FAV) se registran pero no cuentan como día/procedimiento.
         </p>
-        {(p.periodos || []).length === 0 ? (
-          <p className="text-[11px] text-slate-400 mb-2">Sin meses registrados.</p>
+
+        {!p.tipo && <p className="text-[11px] text-amber-700 mb-2">Selecciona primero el tipo de procedimiento.</p>}
+
+        {sesiones.length === 0 ? (
+          <p className="text-[11px] text-slate-400 mb-2">Sin sesiones registradas.</p>
         ) : (
           <div className="space-y-2 mb-2">
-            {(p.periodos || []).map((per, i) => {
+            {sesiones.map((ses) => {
+              const idx = (p.sesiones || []).findIndex((x) => x.id === ses.id);
               const upd = (patch) => {
-                const list = [...p.periodos];
-                list[i] = { ...list[i], ...patch };
-                set("periodos", list);
+                const list = [...(p.sesiones || [])];
+                list[idx] = { ...list[idx], ...patch };
+                set("sesiones", list);
               };
+              const def = tipoSesionDef(p.tipo, ses.tipo);
+              const muestraCuracion = ses.curacion || (def && def.curacion);
+              const conHallazgo = (ses.hallazgos || []).some((hh) => hh !== "sinAlteraciones");
               return (
-                <div key={per.id || i} className="flex gap-2 items-end">
-                  <Field label="Mes" className="flex-1">
-                    <TextInput type="month" value={per.mes} onChange={(e) => upd({ mes: e.target.value })} />
+                <div key={ses.id} className={`rounded-lg border p-2.5 ${conHallazgo ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-slate-50"}`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      {ses.fecha ? fmtDate(ses.fecha) : "Sin fecha"}
+                      {def && <span className="text-slate-400"> · {def.exponeCVC ? "cuenta día/proc." : "no cuenta"}</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => set("sesiones", (p.sesiones || []).filter((x) => x.id !== ses.id))}
+                      className="text-rose-400 text-[11px] hover:text-rose-600"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Fecha">
+                      <TextInput type="date" value={ses.fecha} onChange={(e) => upd({ fecha: e.target.value })} />
+                    </Field>
+                    <Field label="Tipo de atención">
+                      <Select value={ses.tipo} onChange={(e) => upd({ tipo: e.target.value })}>
+                        <option value="">Seleccionar…</option>
+                        {(TIPOS_SESION[p.tipo] || []).map((t) => (
+                          <option key={t.key} value={t.key}>{t.label}</option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+
+                  {def && !def.curacion && (
+                    <button
+                      type="button"
+                      onClick={() => upd({ curacion: !ses.curacion })}
+                      className="flex items-center gap-2 mt-2 text-xs text-slate-600"
+                    >
+                      <span className={`inline-block w-3.5 h-3.5 rounded border shrink-0 ${ses.curacion ? "bg-teal-600 border-teal-600" : "border-slate-400"}`}>
+                        {ses.curacion && <span className="text-white text-[9px] leading-none block text-center">✓</span>}
+                      </span>
+                      Se realizó curación
+                    </button>
+                  )}
+
+                  {muestraCuracion && (
+                    <div className="mt-2 rounded-lg bg-white border border-slate-200 p-2">
+                      <div className="text-[11px] font-semibold text-slate-600 mb-1">Curación — hallazgos del sitio</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {HALLAZGOS_CURACION.map((hh) => {
+                          const marcado = (ses.hallazgos || []).includes(hh.key);
+                          return (
+                            <button
+                              key={hh.key}
+                              type="button"
+                              onClick={() => {
+                                const act = ses.hallazgos || [];
+                                let next;
+                                if (hh.key === "sinAlteraciones") next = marcado ? [] : ["sinAlteraciones"];
+                                else {
+                                  next = marcado ? act.filter((x) => x !== hh.key) : [...act.filter((x) => x !== "sinAlteraciones"), hh.key];
+                                }
+                                upd({ hallazgos: next });
+                              }}
+                              className={`text-[11px] rounded-full px-2.5 py-1 border font-medium ${
+                                marcado
+                                  ? hh.key === "sinAlteraciones"
+                                    ? "bg-emerald-600 text-white border-emerald-600"
+                                    : "bg-rose-600 text-white border-rose-600"
+                                  : "bg-white border-slate-300 text-slate-600"
+                              }`}
+                            >
+                              {hh.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <Field label="Antiséptico / material usado" className="mt-2">
+                        <TextInput
+                          value={ses.antiseptico || ""}
+                          onChange={(e) => upd({ antiseptico: e.target.value })}
+                          placeholder="Ej: clorhexidina 2% + apósito transparente"
+                        />
+                      </Field>
+                    </div>
+                  )}
+
+                  <Field label="Observaciones" className="mt-2">
+                    <TextInput
+                      value={ses.observaciones || ""}
+                      onChange={(e) => upd({ observaciones: e.target.value })}
+                      placeholder="Notas de la atención…"
+                    />
                   </Field>
-                  <Field label="Días/proc." className="w-24">
-                    <TextInput type="number" inputMode="numeric" value={per.dias} onChange={(e) => upd({ dias: e.target.value })} />
-                  </Field>
-                  <button
-                    type="button"
-                    onClick={() => set("periodos", p.periodos.filter((_, j) => j !== i))}
-                    className="text-rose-400 text-[11px] hover:text-rose-600 pb-2.5 shrink-0"
-                  >
-                    Quitar
-                  </button>
                 </div>
               );
             })}
           </div>
         )}
+
         <button
           type="button"
-          onClick={addPeriodo}
-          className="w-full rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs font-semibold py-2 hover:border-teal-400 hover:text-teal-700"
+          disabled={!p.tipo}
+          onClick={() => set("sesiones", [...(p.sesiones || []), newSesionAmb()])}
+          className="w-full rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs font-semibold py-2 hover:border-teal-400 hover:text-teal-700 disabled:opacity-50"
         >
-          + Agregar mes
+          + Agregar sesión
         </button>
+
+        {(p.periodos || []).length > 0 && (
+          <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-2">
+            <div className="text-[11px] font-semibold text-amber-800 mb-1">Días cargados a mano (registro anterior)</div>
+            {(p.periodos || []).map((per, i) => (
+              <div key={i} className="text-[11px] text-amber-700">
+                {per.mes}: {per.dias} día(s)/proc.
+              </div>
+            ))}
+            <p className="text-[10px] text-amber-600 mt-1">
+              Se usan solo mientras no haya sesiones registradas. Al registrar sesiones, el conteo pasa a ser automático.
+            </p>
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard icon={CheckCircle2} title="Resultado de la vigilancia">
@@ -6832,6 +7082,17 @@ function DashboardView({ hospitalizaciones, cirugias, procedimientos, anio, cuat
       tipo: "cirugia",
     });
   });
+  procedimientos.forEach((p) => {
+    alertasAmbulatorio(p).forEach((a) => {
+      const t = TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === p.tipo);
+      alertas.push({
+        nivel: a.nivel,
+        titulo: a.texto,
+        detalle: `${oculto ? anonimo(p.nombre) : p.nombre} · ${t ? t.sigla : "ambulatorio"}`,
+        tipo: "ambulatorio",
+      });
+    });
+  });
   pendientes.forEach((p) => {
     alertas.push({
       nivel: p.tipo === "sin_aval" ? "media" : "alta",
@@ -6976,7 +7237,13 @@ function DashboardView({ hospitalizaciones, cirugias, procedimientos, anio, cuat
               alertas.slice(0, 40).map((a, i) => (
                 <button
                   key={i}
-                  onClick={() => (a.tipo === "cirugia" ? onIrA("cirugias") : a.id && onOpenPaciente(a.id))}
+                  onClick={() =>
+                    a.tipo === "cirugia"
+                      ? onIrA("cirugias")
+                      : a.tipo === "ambulatorio"
+                      ? onIrA("ambulatorio")
+                      : a.id && onOpenPaciente(a.id)
+                  }
                   className="w-full text-left rounded-lg border border-slate-200 px-2.5 py-1.5 hover:border-teal-400 flex items-start gap-2"
                 >
                   <span
