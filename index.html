@@ -660,9 +660,24 @@ function servicioEnFecha(h, fecha) {
   return servicio;
 }
 
-/* Suma días-dispositivo de un tramo [inst, retiro] atribuidos a un servicio específico,
-   respetando los traslados (cada día calendario cuenta para el servicio de ese día). */
-function diasDipEnServicioTramo(fInst, fRetiro, h, servicioObjetivo, desde, hasta) {
+/* Condición (médico/quirúrgico) del paciente en una fecha dada. Se usa para separar
+   la tasa de ITU/CUP. Cada traslado puede traer una condición nueva (ej. el paciente
+   se opera y pasa de médico a quirúrgico); si el traslado no la trae, se mantiene la previa. */
+function condicionEnFecha(h, fecha) {
+  const trs = [...(h.traslados || [])].filter((t) => t.fecha).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+  let cond = h.condicion || "medico";
+  for (const t of trs) {
+    if (t.fecha <= fecha) {
+      if (t.condicion) cond = t.condicion;
+    } else break;
+  }
+  return cond;
+}
+
+/* Suma días-dispositivo de un tramo [inst, retiro] atribuidos a un servicio específico
+   o a una condición (médico/quirúrgico), respetando los traslados: cada día calendario
+   cuenta para el servicio/condición que regía ese día. */
+function diasDipEnServicioTramo(fInst, fRetiro, h, servicioObjetivo, desde, hasta, condicionObjetivo) {
   if (!fInst) return 0;
   const ini = fInst > desde ? fInst : desde;
   const finReal = fRetiro || todayISO();
@@ -673,7 +688,9 @@ function diasDipEnServicioTramo(fInst, fRetiro, h, servicioObjetivo, desde, hast
   const dFin = new Date(fin + "T00:00:00");
   while (d <= dFin) {
     const iso = d.toISOString().slice(0, 10);
-    if (servicioEnFecha(h, iso) === servicioObjetivo) cuenta += 1;
+    const okServicio = !servicioObjetivo || servicioEnFecha(h, iso) === servicioObjetivo;
+    const okCondicion = !condicionObjetivo || condicionEnFecha(h, iso) === condicionObjetivo;
+    if (okServicio && okCondicion) cuenta += 1;
     d.setDate(d.getDate() + 1);
   }
   return cuenta;
@@ -843,7 +860,7 @@ function diasDispositivoEnPeriodo(fInst, fRetiro, desde, hasta) {
 /* Suma días-dispositivo de un tipo, para un paciente, en el período y (opcional) servicio.
    Si se pide un servicio, reparte por traslados: cada día calendario cuenta al servicio
    responsable ese día (regla MINSAL de servicio derivador / receptor). */
-function diasDipPacientePeriodo(h, key, desde, hasta, servicio) {
+function diasDipPacientePeriodo(h, key, desde, hasta, servicio, condicion) {
   const tramos =
     key === "cvc"
       ? (h.dip?.cvc?.cateteres || []).map((c) => [c.fechaInstalacion, c.fechaRetiro])
@@ -855,18 +872,18 @@ function diasDipPacientePeriodo(h, key, desde, hasta, servicio) {
       : [];
   if (tramos.length === 0) return 0;
 
-  if (servicio) {
-    return tramos.reduce((s, [ini, fin]) => s + diasDipEnServicioTramo(ini, fin, h, servicio, desde, hasta), 0);
+  if (servicio || condicion) {
+    return tramos.reduce((s, [ini, fin]) => s + diasDipEnServicioTramo(ini, fin, h, servicio, desde, hasta, condicion), 0);
   }
   return tramos.reduce((s, [ini, fin]) => s + diasDispositivoEnPeriodo(ini, fin, desde, hasta), 0);
 }
 
 /* Calcula numerador (IAAS confirmadas) y denominador (días-dispositivo) para un foco. */
-function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio) {
+function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio, condicion) {
   let diasDip = 0;
   const listaCasos = [];
   hospitalizaciones.forEach((h) => {
-    diasDip += diasDipPacientePeriodo(h, focoKey, desde, hasta, servicio);
+    diasDip += diasDipPacientePeriodo(h, focoKey, desde, hasta, servicio, condicion);
     // Un caso cuenta si hay una notificación con este foco = "SI", confirmada, con fecha en el período
     (h.notificaciones || []).forEach((n) => {
       if (n.confirmacion !== "SI") return;
@@ -877,6 +894,7 @@ function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio) {
       const fechaN = n.fechaIAAS || n.fechaNotificacion || "";
       if (fechaN < desde || fechaN > hasta) return;
       if (servicio && servicioEnFecha(h, fechaN) !== servicio) return;
+      if (condicion && condicionEnFecha(h, fechaN) !== condicion) return;
       listaCasos.push({
         pacienteId: h.id,
         notifId: n.id,
@@ -977,7 +995,8 @@ function newHospitalizacion() {
     edadDias: "",
     prevision: "",
     servicio: "UPC",
-    traslados: [], // [{fecha, servicio}] cambios de servicio responsable (para repartir días-DIP)
+    condicion: "medico", // "medico" | "quirurgico" — clasificación inicial para tasa ITU/CUP
+    traslados: [], // [{fecha, servicio, condicion}] cambios de servicio y/o condición (reparte días-DIP)
     cama: "",
     fechaHospitalizacion: todayISO(),
     fechaIngresoVigilancia: todayISO(),
@@ -2049,6 +2068,10 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], procedimientos = []
     ...calcularTasa(hospitalizaciones, "cup", desde, hasta, s),
   }));
 
+  // ITU/CUP por condición médico/quirúrgico (MQ es indiferenciado, se separa por diagnóstico)
+  const ituMedico = calcularTasa(hospitalizaciones, "cup", desde, hasta, null, "medico");
+  const ituQuirurgico = calcularTasa(hospitalizaciones, "cup", desde, hasta, null, "quirurgico");
+
   // Tendencia mensual de cada foco dentro del cuatrimestre
   const meses = mesesDeCuatrimestre(anio, cuatri);
   const tendencia = meses.map((mIso) => {
@@ -2193,6 +2216,39 @@ function IndicadoresView({ hospitalizaciones, cirugias = [], procedimientos = []
                     </tr>
                   ))}
               </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+        <p className="text-[10px] text-slate-400 mt-2">Tasa = (casos ÷ días-CUP) × 1.000</p>
+      </div>
+
+      {/* ITU/CUP por condición médico/quirúrgico */}
+      <div className="rounded-xl border border-slate-200 bg-white p-3.5">
+        <div className="font-bold text-sm text-slate-700 mb-1">ITU / CUP por condición del paciente</div>
+        <p className="text-[11px] text-slate-500 mb-2">
+          Separa el CUP según el paciente sea médico o quirúrgico (por diagnóstico). Los días se reparten según la condición
+          de cada día, respetando los traslados.
+        </p>
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-slate-500 border-b border-slate-200">
+              <th className="text-left py-1">Condición</th>
+              <th className="text-right py-1">Casos</th>
+              <th className="text-right py-1">Días CUP</th>
+              <th className="text-right py-1">Tasa ‰</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { label: "Médico", d: ituMedico },
+              { label: "Quirúrgico", d: ituQuirurgico },
+            ].map((r) => (
+              <tr key={r.label} className="border-b border-slate-100">
+                <td className="py-1.5 font-semibold text-slate-700">{r.label}</td>
+                <td className="text-right">{r.d.casos}</td>
+                <td className="text-right">{r.d.diasDip}</td>
+                <td className="text-right font-bold text-teal-700">{r.d.tasa.toFixed(2)}</td>
+              </tr>
             ))}
           </tbody>
         </table>
@@ -2688,6 +2744,12 @@ function NuevaFichaForm({ hospitalizaciones, onCancel, onCreate }) {
               {SERVICIOS.map((s) => (
                 <option key={s}>{s}</option>
               ))}
+            </Select>
+          </Field>
+          <Field label="Condición (para ITU/CUP)">
+            <Select value={form.condicion || "medico"} onChange={(e) => set("condicion", e.target.value)}>
+              <option value="medico">Médico</option>
+              <option value="quirurgico">Quirúrgico</option>
             </Select>
           </Field>
           <Field label="Cama">
@@ -4769,14 +4831,18 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
   const [agregando, setAgregando] = useState(false);
   const [fecha, setFecha] = useState(todayISO());
   const [servicioNuevo, setServicioNuevo] = useState(SERVICIOS[0]);
+  const [condicionNueva, setCondicionNueva] = useState("mantener");
   const traslados = [...(h.traslados || [])].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
 
   const guardar = () => {
     if (!fecha) return;
-    const list = [...(h.traslados || []), { fecha, servicio: servicioNuevo }];
+    const t = { fecha, servicio: servicioNuevo };
+    if (condicionNueva !== "mantener") t.condicion = condicionNueva;
+    const list = [...(h.traslados || []), t];
     onUpdate({ ...h, traslados: list, updatedAt: new Date().toISOString() });
     setAgregando(false);
     setFecha(todayISO());
+    setCondicionNueva("mantener");
   };
 
   const eliminar = (idx) => {
@@ -4792,9 +4858,10 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
       </p>
 
       <div className="text-xs mb-2">
-        <span className="text-slate-400">Servicio de ingreso:</span>{" "}
+        <span className="text-slate-400">Ingreso:</span>{" "}
         <span className="font-semibold text-slate-700">{h.servicio}</span>{" "}
-        <span className="text-slate-400">(desde {fmtDate(h.fechaHospitalizacion)})</span>
+        <span className="text-sky-600 text-[11px]">({(h.condicion || "medico") === "quirurgico" ? "quirúrgico" : "médico"})</span>{" "}
+        <span className="text-slate-400">desde {fmtDate(h.fechaHospitalizacion)}</span>
       </div>
 
       {traslados.length > 0 && (
@@ -4804,6 +4871,9 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
               <span>
                 <span className="text-slate-400">{fmtDate(t.fecha)} →</span>{" "}
                 <span className="font-semibold text-slate-700">{t.servicio}</span>
+                {t.condicion && (
+                  <span className="text-[10px] text-sky-600"> · {t.condicion === "quirurgico" ? "quirúrgico" : "médico"}</span>
+                )}
               </span>
               <button onClick={() => eliminar(i)} className="text-rose-400 text-[11px] hover:text-rose-600">
                 Quitar
@@ -4824,6 +4894,13 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
                 {SERVICIOS.map((s) => (
                   <option key={s}>{s}</option>
                 ))}
+              </Select>
+            </Field>
+            <Field label="Condición (ITU/CUP)" className="col-span-2">
+              <Select value={condicionNueva} onChange={(e) => setCondicionNueva(e.target.value)}>
+                <option value="mantener">Mantener la actual</option>
+                <option value="medico">Cambiar a Médico</option>
+                <option value="quirurgico">Cambiar a Quirúrgico</option>
               </Select>
             </Field>
           </div>
@@ -5367,13 +5444,21 @@ function episodiosFoco(h, key) {
 }
 
 /* Resumen de un dispositivo dentro de un mes [desde, hasta] — para la planilla DIP. */
-function resumenFocoMes(h, key, desde, hasta) {
+function resumenFocoMes(h, key, desde, hasta, servicioFiltro) {
   const eps = episodiosFoco(h, key).filter((e) => {
     const fin = e.fechaRetiro || todayISO();
     return e.fechaInstalacion <= hasta && fin >= desde;
   });
   if (eps.length === 0) return null;
-  const dias = eps.reduce((s, e) => s + diasDispositivoEnPeriodo(e.fechaInstalacion, e.fechaRetiro, desde, hasta), 0);
+  // Si se filtra por servicio, cuenta solo los días que el paciente estuvo en ese servicio (reparte traslados)
+  const dias = eps.reduce((s, e) => {
+    if (servicioFiltro && servicioFiltro !== "Todos") {
+      return s + diasDipEnServicioTramo(e.fechaInstalacion, e.fechaRetiro, h, servicioFiltro, desde, hasta);
+    }
+    return s + diasDispositivoEnPeriodo(e.fechaInstalacion, e.fechaRetiro, desde, hasta);
+  }, 0);
+  // Si con el filtro de servicio no quedan días, este dispositivo no corresponde a este servicio
+  if (servicioFiltro && servicioFiltro !== "Todos" && dias === 0) return null;
   const cultivoKey = key === "cup" ? "urocultivo" : key === "vmi" ? "aetCsb" : "hemocultivos";
   const cultivos = [];
   (h.evoluciones || []).forEach((ev) => {
@@ -5626,12 +5711,11 @@ function DipListaPrintView({ hospitalizaciones, mes, servicio, onClose }) {
 
   const filas = hospitalizaciones
     .filter((h) => !h.eliminado && h.tipoRegistro !== "cirugia" && h.tipoRegistro !== "procedimiento")
-    .filter((h) => servicio === "Todos" || h.servicio === servicio)
     .map((h) => ({
       h,
-      cup: resumenFocoMes(h, "cup", desde, hasta),
-      cvc: resumenFocoMes(h, "cvc", desde, hasta),
-      vmi: resumenFocoMes(h, "vmi", desde, hasta),
+      cup: resumenFocoMes(h, "cup", desde, hasta, servicio),
+      cvc: resumenFocoMes(h, "cvc", desde, hasta, servicio),
+      vmi: resumenFocoMes(h, "vmi", desde, hasta, servicio),
     }))
     .filter((f) => f.cup || f.cvc || f.vmi)
     .sort((a, b) => (a.h.nombre || "").localeCompare(b.h.nombre || ""));
