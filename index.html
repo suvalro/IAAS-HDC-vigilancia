@@ -1061,25 +1061,6 @@ function newControlCx() {
   return { id: uid(), fecha: todayISO(), fuente: "", caracteristica: "", hallazgos: "" };
 }
 
-/* --- Procedimientos ambulatorios periódicos: quimioterapia con CVC y hemodiálisis con CHD --- */
-function newSesionAmb() {
-  return { id: uid(), fecha: todayISO(), tipoDia: "procedimiento", obs: "" };
-}
-
-/* Accesos vasculares según tipo (criterios de inclusión del manual) */
-const ACCESOS_AMB = {
-  quimio: ["Reservorio", "PICC", "Tunelizado", "No tunelizado / exteriorizado", "CVC transitorio"],
-  dialisis: ["CHD transitorio", "CHD tunelizado"],
-};
-
-/* Tipos de día-procedimiento (regla MINSAL: cada uno aporta 1 día/procedimiento) */
-const TIPOS_DIA_AMB = [
-  { key: "procedimiento", label: "Sesión / administración" },
-  { key: "conexion", label: "Conexión (día distinto)" },
-  { key: "desconexion", label: "Desconexión (día distinto)" },
-  { key: "muestra", label: "Toma de muestra / soluciones por el catéter" },
-];
-
 /* ---------------------------------------------------------------------- */
 /* Procedimientos periódicos ambulatorios (quimioterapia CVC / hemodiálisis CHD) */
 /* ---------------------------------------------------------------------- */
