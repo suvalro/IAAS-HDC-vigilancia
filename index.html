@@ -1125,6 +1125,32 @@ function newSesionAmb() {
 
 /* Días/procedimiento de un paciente en un rango: cuenta las sesiones con exposición
    del catéter. Si el registro es antiguo (sin sesiones), usa los meses cargados a mano. */
+/* Fechas de un mes que caen en ciertos días de la semana (0=domingo … 6=sábado).
+   Sirve para generar de una vez las sesiones recurrentes de diálisis. */
+function fechasDelMes(mes, diasSemana) {
+  if (!mes || !diasSemana || diasSemana.length === 0) return [];
+  const [y, m] = mes.split("-").map(Number);
+  const out = [];
+  const d = new Date(y, m - 1, 1);
+  while (d.getMonth() === m - 1) {
+    if (diasSemana.includes(d.getDay())) {
+      out.push(`${y}-${String(m).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+const DIAS_SEMANA = [
+  { n: 1, label: "L" },
+  { n: 2, label: "M" },
+  { n: 3, label: "X" },
+  { n: 4, label: "J" },
+  { n: 5, label: "V" },
+  { n: 6, label: "S" },
+  { n: 0, label: "D" },
+];
+
 function diasProcedimiento(p, desde, hasta) {
   const ses = p.sesiones || [];
   if (ses.length > 0) {
@@ -6504,10 +6530,234 @@ function CirugiaForm({ registro, onCancel, onSave, onPersist, onDelete }) {
 /* Vista: Procedimientos ambulatorios periódicos (quimio / hemodiálisis)   */
 /* ---------------------------------------------------------------------- */
 
+/* Exporta a Excel (CSV) el listado mensual de procedimientos ambulatorios. */
+function exportarAmbulatorioExcel(filas, mes, filtroLabel) {
+  const esc = (v) => `"${String(v === undefined || v === null ? "" : v).replace(/"/g, '""')}"`;
+  const L = [];
+  L.push(esc(`VIGILANCIA DE PROCEDIMIENTOS AMBULATORIOS - ${mesLargo(mes)} - ${filtroLabel}`));
+  L.push("");
+  L.push(["NOMBRE PACIENTE","RUT","EDAD","PROCEDIMIENTO","ACCESO VASCULAR","UNIDAD INFORMANTE",
+    "SESIONES DEL MES","DIAS/PROCEDIMIENTO","CURACIONES","HALLAZGOS","ITS (SI/NO)","MO"].map(esc).join(","));
+  filas.forEach((f) => {
+    L.push([f.p.nombre || "", f.p.rut || "", f.p.edad || "", f.tipoLabel, f.p.acceso || "",
+      f.p.unidadInformante || "", f.nSes, f.dias, f.nCuraciones,
+      f.hallazgos.length ? f.hallazgos.join(" / ") : "sin hallazgos",
+      f.itsEnMes ? "SI" : "NO", f.itsEnMes ? f.p.mo || "" : ""].map(esc).join(","));
+  });
+  L.push("");
+  L.push(["RESUMEN","PACIENTES","DIAS/PROC","ITS","INDICE x1000"].map(esc).join(","));
+  TIPOS_PROCEDIMIENTO_AMB.forEach((t) => {
+    const g = filas.filter((f) => f.p.tipo === t.key);
+    if (g.length === 0) return;
+    const d = g.reduce((a, x) => a + x.dias, 0);
+    const c = g.filter((x) => x.itsEnMes).length;
+    L.push([t.indicador, g.length, d, c, d > 0 ? ((c / d) * 1000).toFixed(2) : "0"].map(esc).join(","));
+  });
+  const blob = new Blob(["\uFEFF" + L.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `Ambulatorio_${filtroLabel.replace(/\s+/g, "_")}_${mes}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* Listado mensual de pacientes ambulatorios revisados — para revisión y auditoría. */
+function AmbulatorioListaPrintView({ procedimientos, mes, filtroTipo, onClose }) {
+  const desde = mes + "-01";
+  const hasta = mes + "-31";
+  const filtroLabel =
+    filtroTipo === "Todos" ? "Todas las unidades" : (TIPOS_PROCEDIMIENTO_AMB.find((t) => t.key === filtroTipo) || {}).label || filtroTipo;
+
+  const filas = procedimientos
+    .filter((p) => filtroTipo === "Todos" || p.tipo === filtroTipo)
+    .map((p) => {
+      const t = TIPOS_PROCEDIMIENTO_AMB.find((x) => x.key === p.tipo);
+      const sesMes = (p.sesiones || []).filter((x) => x.fecha >= desde && x.fecha <= hasta).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+      const dias = diasProcedimiento(p, desde, hasta);
+      const conCuracion = sesMes.filter((x) => {
+        const def = tipoSesionDef(p.tipo, x.tipo);
+        return x.curacion || (def && def.curacion);
+      });
+      const hallazgos = [];
+      sesMes.forEach((x) => {
+        (x.hallazgos || []).forEach((hh) => {
+          if (hh === "sinAlteraciones") return;
+          const lab = (HALLAZGOS_CURACION.find((z) => z.key === hh) || {}).label || hh;
+          if (!hallazgos.includes(lab)) hallazgos.push(lab);
+        });
+      });
+      const itsEnMes = p.its === "SI" && (p.fechaITS || "") >= desde && (p.fechaITS || "") <= hasta;
+      return { p, tipoLabel: t ? t.label : p.tipo || "", sesMes, nSes: sesMes.length, dias, nCuraciones: conCuracion.length, hallazgos, itsEnMes };
+    })
+    .filter((f) => f.nSes > 0 || f.itsEnMes)
+    .sort((a, b) => (a.p.nombre || "").localeCompare(b.p.nombre || ""));
+
+  const th = "border border-slate-500 px-1.5 py-1 text-center font-bold";
+  const td = "border border-slate-400 px-1.5 py-1 align-top";
+  const grupo = { background: "#f5d9c8" };
+
+  const conHallazgos = [];
+  filas.forEach((f) => {
+    f.sesMes.forEach((x) => {
+      const hs = (x.hallazgos || []).filter((hh) => hh !== "sinAlteraciones");
+      if (hs.length) conHallazgos.push({ nombre: f.p.nombre, fecha: x.fecha, hs, antiseptico: x.antiseptico, obs: x.observaciones });
+    });
+  });
+
+  return (
+    <div className="print-active fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
+      <div className="max-w-5xl mx-auto my-4 bg-white rounded-xl shadow-lg">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
+          <span className="text-sm font-bold text-slate-700">Ambulatorio — {mesLargo(mes)}</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportarAmbulatorioExcel(filas, mes, filtroLabel)}
+              className="rounded-lg bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5"
+            >
+              Excel
+            </button>
+            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+              Imprimir / PDF
+            </button>
+            <button onClick={onClose} className="rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold px-3 py-1.5">
+              Cerrar
+            </button>
+          </div>
+        </div>
+
+        <div id="print-area" className="ficha-vigilancia-print p-6 text-sm text-slate-800">
+          <EncabezadoPDF
+            titulo="VIGILANCIA DE PROCEDIMIENTOS AMBULATORIOS"
+            subtitulo={`${mesLargo(mes)} · ${filtroLabel} · ${filas.length} paciente(s) revisado(s)`}
+          />
+
+          {filas.length === 0 ? (
+            <p className="text-xs text-slate-500">Sin pacientes con registros en este mes.</p>
+          ) : (
+            <>
+              <table className="w-full border-collapse text-[10px]">
+                <thead>
+                  <tr style={grupo}>
+                    <th className={th}>NOMBRE PACIENTE</th>
+                    <th className={th}>RUT</th>
+                    <th className={th}>EDAD</th>
+                    <th className={th}>PROCEDIMIENTO</th>
+                    <th className={th}>ACCESO VASCULAR</th>
+                    <th className={th}>UNIDAD</th>
+                    <th className={th}>SESIONES</th>
+                    <th className={th}>DÍAS/PROC.</th>
+                    <th className={th}>CURACIONES</th>
+                    <th className={th}>HALLAZGOS</th>
+                    <th className={th}>ITS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr key={f.p.id}>
+                      <td className={td}>{f.p.nombre || "—"}</td>
+                      <td className={td}>{f.p.rut || "—"}</td>
+                      <td className={td + " text-center"}>{f.p.edad || "—"}</td>
+                      <td className={td}>{f.tipoLabel}</td>
+                      <td className={td}>{f.p.acceso || "—"}</td>
+                      <td className={td}>{f.p.unidadInformante || "—"}</td>
+                      <td className={td + " text-center"}>{f.nSes}</td>
+                      <td className={td + " text-center font-semibold"}>{f.dias}</td>
+                      <td className={td + " text-center"}>{f.nCuraciones}</td>
+                      <td className={td}>{f.hallazgos.length ? f.hallazgos.join(", ") : "sin hallazgos"}</td>
+                      <td className={td + " text-center font-bold"}>{f.itsEnMes ? "SI" : "NO"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {conHallazgos.length > 0 && (
+                <div className="mt-4">
+                  <div className="text-[11px] font-bold uppercase mb-1">Detalle de curaciones con hallazgos</div>
+                  <table className="w-full border-collapse text-[10px]">
+                    <thead>
+                      <tr style={grupo}>
+                        <th className={th}>FECHA</th>
+                        <th className={th}>PACIENTE</th>
+                        <th className={th}>HALLAZGOS</th>
+                        <th className={th}>ANTISÉPTICO / MATERIAL</th>
+                        <th className={th}>OBSERVACIONES</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conHallazgos.map((c, i) => (
+                        <tr key={i}>
+                          <td className={td + " text-center"}>{fmtDate(c.fecha)}</td>
+                          <td className={td}>{c.nombre || "—"}</td>
+                          <td className={td}>
+                            {c.hs.map((hh) => (HALLAZGOS_CURACION.find((z) => z.key === hh) || {}).label || hh).join(", ")}
+                          </td>
+                          <td className={td}>{c.antiseptico || "—"}</td>
+                          <td className={td}>{c.obs || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="mt-4">
+                <table className="border-collapse text-[10px]" style={{ width: "auto" }}>
+                  <thead>
+                    <tr style={grupo}>
+                      <th className={th}>Indicador</th>
+                      <th className={th}>Pacientes</th>
+                      <th className={th}>Días/proc.</th>
+                      <th className={th}>ITS</th>
+                      <th className={th}>Índice x1.000</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {TIPOS_PROCEDIMIENTO_AMB.map((t) => {
+                      const g = filas.filter((f) => f.p.tipo === t.key);
+                      if (g.length === 0) return null;
+                      const d = g.reduce((a, x) => a + x.dias, 0);
+                      const c = g.filter((x) => x.itsEnMes).length;
+                      return (
+                        <tr key={t.key}>
+                          <td className={td + " font-semibold"}>{t.indicador}</td>
+                          <td className={td + " text-center"}>{g.length}</td>
+                          <td className={td + " text-center"}>{d}</td>
+                          <td className={td + " text-center"}>{c}</td>
+                          <td className={td + " text-center font-bold"}>{d > 0 ? ((c / d) * 1000).toFixed(2) : "0.00"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="text-[9px] text-slate-500 mt-1">
+                  Índice = (ITS ÷ días/procedimiento) × 1.000. Las curaciones sin conexión por CVC no suman días/procedimiento.
+                </p>
+              </div>
+            </>
+          )}
+
+          <div className="mt-10 flex justify-between text-[10px]">
+            <div className="text-center" style={{ width: "45%" }}>
+              <div className="border-t border-slate-500 pt-1">Enfermera IAAS</div>
+            </div>
+            <div className="text-center" style={{ width: "45%" }}>
+              <div className="border-t border-slate-500 pt-1">Medico IAAS</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProcedimientosView({ procedimientos, onSave, onDelete }) {
   const [editando, setEditando] = useState(null);
   const [nuevo, setNuevo] = useState(false);
   const [filtro, setFiltro] = useState("Todos");
+  const [impMes, setImpMes] = useState(todayISO().slice(0, 7));
+  const [impTipo, setImpTipo] = useState("Todos");
+  const [imprimir, setImprimir] = useState(null); // {mes, tipo}
 
   if (nuevo || editando) {
     return (
@@ -6544,6 +6794,28 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
         >
           <Plus size={16} /> Nuevo
         </button>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="text-xs font-semibold text-slate-600 mb-1.5">Listado mensual de pacientes revisados</div>
+        <div className="flex gap-2">
+          <TextInput type="month" value={impMes} onChange={(e) => setImpMes(e.target.value)} className="flex-1" />
+          <Select value={impTipo} onChange={(e) => setImpTipo(e.target.value)} className="flex-1">
+            <option value="Todos">Todas las unidades</option>
+            {TIPOS_PROCEDIMIENTO_AMB.map((t) => (
+              <option key={t.key} value={t.key}>{t.label}</option>
+            ))}
+          </Select>
+          <button
+            onClick={() => setImprimir({ mes: impMes, tipo: impTipo })}
+            className="rounded-lg border border-teal-700 text-teal-700 hover:bg-teal-50 text-xs font-semibold px-3 py-2 flex items-center gap-1.5 shrink-0"
+          >
+            <Download size={14} /> Imprimir
+          </button>
+        </div>
+        <p className="text-[10px] text-slate-400 mt-1.5">
+          Sesiones, curaciones, hallazgos e índice del mes. Se descarga en PDF o Excel. Filtra por diálisis u oncología.
+        </p>
       </div>
 
       {(() => {
@@ -6658,6 +6930,15 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
           })}
         </div>
       )}
+
+      {imprimir && (
+        <AmbulatorioListaPrintView
+          procedimientos={procedimientos}
+          mes={imprimir.mes}
+          filtroTipo={imprimir.tipo}
+          onClose={() => setImprimir(null)}
+        />
+      )}
     </div>
   );
 }
@@ -6671,16 +6952,88 @@ function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) 
   const diasExpuestos = diasProcedimiento(p, "0000-01-01", "9999-12-31");
   const alertas = alertasAmbulatorio(p);
 
+  // Alta rápida de sesiones
+  const [qaFecha, setQaFecha] = useState(todayISO());
+  const [qaTipo, setQaTipo] = useState("");
+  const [expandida, setExpandida] = useState(null);
+  const [guardado, setGuardado] = useState(false);
+
+  // Generador de sesiones recurrentes
+  const [generando, setGenerando] = useState(false);
+  const [genMes, setGenMes] = useState(todayISO().slice(0, 7));
+  const [genDias, setGenDias] = useState([1, 3, 5]);
+  const [genTipo, setGenTipo] = useState("");
+
+  // El tipo por defecto se ajusta al procedimiento elegido
+  useEffect(() => {
+    const lista = TIPOS_SESION[p.tipo] || [];
+    if (lista.length) {
+      if (!lista.some((t) => t.key === qaTipo)) setQaTipo(lista[0].key);
+      if (!lista.some((t) => t.key === genTipo)) setGenTipo(lista[0].key);
+    }
+  }, [p.tipo]);
+
+  /* Guarda las sesiones de inmediato (no espera al botón Guardar) */
+  const guardarSesiones = (lista) => {
+    const next = { ...p, sesiones: lista, updatedAt: new Date().toISOString() };
+    setP(next);
+    if (onPersist && (next.nombre || "").trim()) {
+      onPersist(next);
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 1500);
+    }
+  };
+
+  const agregarRapida = () => {
+    if (!qaFecha || !qaTipo) return;
+    const def = tipoSesionDef(p.tipo, qaTipo);
+    const nueva = {
+      ...newSesionAmb(),
+      fecha: qaFecha,
+      tipo: qaTipo,
+      hallazgos: def && def.curacion ? ["sinAlteraciones"] : [],
+    };
+    guardarSesiones([...(p.sesiones || []), nueva]);
+    // La fecha avanza sola: diálisis suele ser día por medio
+    const paso = p.tipo === "hd_chd" ? 2 : 1;
+    const d = new Date(qaFecha + "T00:00:00");
+    d.setDate(d.getDate() + paso);
+    setQaFecha(d.toISOString().slice(0, 10));
+  };
+
+  const fechasGeneradas = fechasDelMes(genMes, genDias);
+  const yaExisten = new Set((p.sesiones || []).map((x) => x.fecha));
+  const pendientesGen = fechasGeneradas.filter((f) => !yaExisten.has(f));
+  const nuevasGeneradas = pendientesGen.length;
+
+  const generarMes = () => {
+    const def = tipoSesionDef(p.tipo, genTipo);
+    const items = pendientesGen.map((f) => ({
+      ...newSesionAmb(),
+      id: uid() + Math.random().toString(36).slice(2, 6),
+      fecha: f,
+      tipo: genTipo,
+      hallazgos: def && def.curacion ? ["sinAlteraciones"] : [],
+    }));
+    guardarSesiones([...(p.sesiones || []), ...items]);
+    setGenerando(false);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
           <ArrowLeft size={18} />
         </button>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold text-slate-800">{esNuevo ? "Nuevo paciente ambulatorio" : "Editar paciente"}</h1>
           <p className="text-xs text-slate-500">Vigilancia de procedimientos periódicos</p>
         </div>
+        {guardado && (
+          <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1 shrink-0">
+            <CheckCircle2 size={13} /> guardado
+          </span>
+        )}
       </div>
 
       {alertas.length > 0 && (
@@ -6738,133 +7091,255 @@ function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) 
         </div>
       </SectionCard>
 
-      <SectionCard icon={CalendarClock} title={`Sesiones registradas — ${sesiones.length} · ${diasExpuestos} día(s)/proc.`} defaultOpen>
-        <p className="text-[11px] text-slate-500 mb-2">
-          Registra cada atención con su fecha y tipo. Los días con exposición del catéter son el denominador del índice;
-          las curaciones sin conexión por CVC (pacientes con FAV) se registran pero no cuentan como día/procedimiento.
-        </p>
-
-        {!p.tipo && <p className="text-[11px] text-amber-700 mb-2">Selecciona primero el tipo de procedimiento.</p>}
-
-        {sesiones.length === 0 ? (
-          <p className="text-[11px] text-slate-400 mb-2">Sin sesiones registradas.</p>
+      <SectionCard
+        icon={CalendarClock}
+        title={`Sesiones — ${sesiones.length} registro(s) · ${diasExpuestos} día(s)/proc.`}
+        defaultOpen
+      >
+        {!p.tipo ? (
+          <p className="text-[11px] text-amber-700">Selecciona primero el tipo de procedimiento.</p>
         ) : (
-          <div className="space-y-2 mb-2">
-            {sesiones.map((ses) => {
-              const idx = (p.sesiones || []).findIndex((x) => x.id === ses.id);
-              const upd = (patch) => {
-                const list = [...(p.sesiones || [])];
-                list[idx] = { ...list[idx], ...patch };
-                set("sesiones", list);
-              };
-              const def = tipoSesionDef(p.tipo, ses.tipo);
-              const muestraCuracion = ses.curacion || (def && def.curacion);
-              const conHallazgo = (ses.hallazgos || []).some((hh) => hh !== "sinAlteraciones");
-              return (
-                <div key={ses.id} className={`rounded-lg border p-2.5 ${conHallazgo ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-slate-50"}`}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-semibold text-slate-500">
-                      {ses.fecha ? fmtDate(ses.fecha) : "Sin fecha"}
-                      {def && <span className="text-slate-400"> · {def.exponeCVC ? "cuenta día/proc." : "no cuenta"}</span>}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => set("sesiones", (p.sesiones || []).filter((x) => x.id !== ses.id))}
-                      className="text-rose-400 text-[11px] hover:text-rose-600"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Fecha">
-                      <TextInput type="date" value={ses.fecha} onChange={(e) => upd({ fecha: e.target.value })} />
-                    </Field>
-                    <Field label="Tipo de atención">
-                      <Select value={ses.tipo} onChange={(e) => upd({ tipo: e.target.value })}>
-                        <option value="">Seleccionar…</option>
-                        {(TIPOS_SESION[p.tipo] || []).map((t) => (
-                          <option key={t.key} value={t.key}>{t.label}</option>
-                        ))}
-                      </Select>
-                    </Field>
-                  </div>
+          <>
+            {/* Alta rápida: siempre arriba, la sesión aparece de inmediato abajo */}
+            <div className="rounded-lg border border-teal-300 bg-teal-50 p-2.5 mb-2">
+              <div className="text-[11px] font-semibold text-teal-800 mb-1.5">Agregar sesión</div>
+              <div className="flex gap-2 items-end">
+                <Field label="Fecha" className="flex-1">
+                  <TextInput type="date" value={qaFecha} onChange={(e) => setQaFecha(e.target.value)} />
+                </Field>
+                <button
+                  type="button"
+                  onClick={agregarRapida}
+                  className="rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold px-4 py-2.5 shrink-0"
+                >
+                  Agregar
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {(TIPOS_SESION[p.tipo] || []).map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setQaTipo(t.key)}
+                    className={`text-[11px] rounded-full px-2.5 py-1 border font-medium ${
+                      qaTipo === t.key ? "bg-teal-700 text-white border-teal-700" : "bg-white border-teal-300 text-teal-800"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-teal-700 mt-1.5">
+                Elige el tipo una vez y queda fijo. Al agregar, la fecha avanza sola al siguiente día de atención.
+              </p>
+            </div>
 
-                  {def && !def.curacion && (
-                    <button
-                      type="button"
-                      onClick={() => upd({ curacion: !ses.curacion })}
-                      className="flex items-center gap-2 mt-2 text-xs text-slate-600"
-                    >
-                      <span className={`inline-block w-3.5 h-3.5 rounded border shrink-0 ${ses.curacion ? "bg-teal-600 border-teal-600" : "border-slate-400"}`}>
-                        {ses.curacion && <span className="text-white text-[9px] leading-none block text-center">✓</span>}
-                      </span>
-                      Se realizó curación
-                    </button>
-                  )}
-
-                  {muestraCuracion && (
-                    <div className="mt-2 rounded-lg bg-white border border-slate-200 p-2">
-                      <div className="text-[11px] font-semibold text-slate-600 mb-1">Curación — hallazgos del sitio</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {HALLAZGOS_CURACION.map((hh) => {
-                          const marcado = (ses.hallazgos || []).includes(hh.key);
-                          return (
-                            <button
-                              key={hh.key}
-                              type="button"
-                              onClick={() => {
-                                const act = ses.hallazgos || [];
-                                let next;
-                                if (hh.key === "sinAlteraciones") next = marcado ? [] : ["sinAlteraciones"];
-                                else {
-                                  next = marcado ? act.filter((x) => x !== hh.key) : [...act.filter((x) => x !== "sinAlteraciones"), hh.key];
-                                }
-                                upd({ hallazgos: next });
-                              }}
-                              className={`text-[11px] rounded-full px-2.5 py-1 border font-medium ${
-                                marcado
-                                  ? hh.key === "sinAlteraciones"
-                                    ? "bg-emerald-600 text-white border-emerald-600"
-                                    : "bg-rose-600 text-white border-rose-600"
-                                  : "bg-white border-slate-300 text-slate-600"
-                              }`}
-                            >
-                              {hh.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <Field label="Antiséptico / material usado" className="mt-2">
-                        <TextInput
-                          value={ses.antiseptico || ""}
-                          onChange={(e) => upd({ antiseptico: e.target.value })}
-                          placeholder="Ej: clorhexidina 2% + apósito transparente"
-                        />
-                      </Field>
-                    </div>
-                  )}
-
-                  <Field label="Observaciones" className="mt-2">
-                    <TextInput
-                      value={ses.observaciones || ""}
-                      onChange={(e) => upd({ observaciones: e.target.value })}
-                      placeholder="Notas de la atención…"
-                    />
+            {/* Generador de sesiones recurrentes (diálisis: L-X-V, etc.) */}
+            {generando ? (
+              <div className="rounded-lg border border-sky-300 bg-sky-50 p-2.5 mb-2">
+                <div className="text-[11px] font-semibold text-sky-800 mb-1.5">Generar mes completo</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Mes">
+                    <TextInput type="month" value={genMes} onChange={(e) => setGenMes(e.target.value)} />
+                  </Field>
+                  <Field label="Tipo de atención">
+                    <Select value={genTipo} onChange={(e) => setGenTipo(e.target.value)}>
+                      {(TIPOS_SESION[p.tipo] || []).map((t) => (
+                        <option key={t.key} value={t.key}>{t.label}</option>
+                      ))}
+                    </Select>
                   </Field>
                 </div>
-              );
-            })}
-          </div>
-        )}
+                <div className="mt-2">
+                  <div className="text-[11px] text-sky-800 mb-1">Días de atención</div>
+                  <div className="flex gap-1.5">
+                    {DIAS_SEMANA.map((d) => (
+                      <button
+                        key={d.n}
+                        type="button"
+                        onClick={() =>
+                          setGenDias((prev) => (prev.includes(d.n) ? prev.filter((x) => x !== d.n) : [...prev, d.n]))
+                        }
+                        className={`w-8 h-8 rounded-lg border text-xs font-bold ${
+                          genDias.includes(d.n) ? "bg-sky-600 text-white border-sky-600" : "bg-white border-sky-300 text-sky-700"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setGenerando(false)}
+                    className="rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold px-3 py-2"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={nuevasGeneradas === 0}
+                    onClick={generarMes}
+                    className="flex-1 rounded-lg bg-sky-700 disabled:bg-slate-300 text-white text-xs font-bold py-2"
+                  >
+                    Crear {nuevasGeneradas} sesión(es)
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setGenerando(true)}
+                className="w-full rounded-lg border border-dashed border-sky-300 text-sky-700 text-xs font-semibold py-2 mb-2 hover:bg-sky-50"
+              >
+                Generar mes completo (días fijos)
+              </button>
+            )}
 
-        <button
-          type="button"
-          disabled={!p.tipo}
-          onClick={() => set("sesiones", [...(p.sesiones || []), newSesionAmb()])}
-          className="w-full rounded-lg border border-dashed border-slate-300 text-slate-500 text-xs font-semibold py-2 hover:border-teal-400 hover:text-teal-700 disabled:opacity-50"
-        >
-          + Agregar sesión
-        </button>
+            {sesiones.length === 0 ? (
+              <p className="text-[11px] text-slate-400">Sin sesiones registradas.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {sesiones.map((ses) => {
+                  const def = tipoSesionDef(p.tipo, ses.tipo);
+                  const conHallazgo = (ses.hallazgos || []).some((hh) => hh !== "sinAlteraciones");
+                  const abierta = expandida === ses.id;
+                  const upd = (patch) => {
+                    const lista = (p.sesiones || []).map((x) => (x.id === ses.id ? { ...x, ...patch } : x));
+                    guardarSesiones(lista);
+                  };
+                  const muestraCuracion = ses.curacion || (def && def.curacion);
+                  return (
+                    <div
+                      key={ses.id}
+                      className={`rounded-lg border ${conHallazgo ? "border-rose-300 bg-rose-50" : abierta ? "border-teal-400 bg-white" : "border-slate-200 bg-white"}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setExpandida(abierta ? null : ses.id)}
+                        className="w-full flex items-center justify-between gap-2 px-2.5 py-2 text-left"
+                      >
+                        <span className="min-w-0">
+                          <span className="text-xs font-bold text-slate-800">{ses.fecha ? fmtDate(ses.fecha) : "Sin fecha"}</span>
+                          <span className="block text-[10px] text-slate-500 truncate">
+                            {def ? def.label : "Sin tipo"}
+                            {def && !def.exponeCVC ? " · no cuenta día/proc." : ""}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {conHallazgo && (
+                            <span className="text-[9px] font-bold bg-rose-600 text-white rounded px-1.5 py-0.5">hallazgo</span>
+                          )}
+                          {muestraCuracion && !conHallazgo && (
+                            <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 rounded px-1.5 py-0.5">
+                              curación
+                            </span>
+                          )}
+                          <ChevronRight
+                            size={14}
+                            className={`text-slate-400 ${abierta ? "rotate-90" : ""}`}
+                            style={{ transition: "transform .15s" }}
+                          />
+                        </span>
+                      </button>
+
+                      {abierta && (
+                        <div className="px-2.5 pb-2.5 border-t border-slate-100 pt-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Fecha">
+                              <TextInput type="date" value={ses.fecha} onChange={(e) => upd({ fecha: e.target.value })} />
+                            </Field>
+                            <Field label="Tipo de atención">
+                              <Select value={ses.tipo} onChange={(e) => upd({ tipo: e.target.value })}>
+                                <option value="">Seleccionar…</option>
+                                {(TIPOS_SESION[p.tipo] || []).map((t) => (
+                                  <option key={t.key} value={t.key}>{t.label}</option>
+                                ))}
+                              </Select>
+                            </Field>
+                          </div>
+
+                          {def && !def.curacion && (
+                            <button
+                              type="button"
+                              onClick={() => upd({ curacion: !ses.curacion })}
+                              className="flex items-center gap-2 mt-2 text-xs text-slate-600"
+                            >
+                              <span className={`inline-block w-3.5 h-3.5 rounded border shrink-0 ${ses.curacion ? "bg-teal-600 border-teal-600" : "border-slate-400"}`}>
+                                {ses.curacion && <span className="text-white text-[9px] leading-none block text-center">✓</span>}
+                              </span>
+                              Se realizó curación
+                            </button>
+                          )}
+
+                          {muestraCuracion && (
+                            <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-2">
+                              <div className="text-[11px] font-semibold text-slate-600 mb-1">Hallazgos del sitio</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {HALLAZGOS_CURACION.map((hh) => {
+                                  const marcado = (ses.hallazgos || []).includes(hh.key);
+                                  return (
+                                    <button
+                                      key={hh.key}
+                                      type="button"
+                                      onClick={() => {
+                                        const act = ses.hallazgos || [];
+                                        let next;
+                                        if (hh.key === "sinAlteraciones") next = marcado ? [] : ["sinAlteraciones"];
+                                        else next = marcado ? act.filter((x) => x !== hh.key) : [...act.filter((x) => x !== "sinAlteraciones"), hh.key];
+                                        upd({ hallazgos: next });
+                                      }}
+                                      className={`text-[11px] rounded-full px-2.5 py-1 border font-medium ${
+                                        marcado
+                                          ? hh.key === "sinAlteraciones"
+                                            ? "bg-emerald-600 text-white border-emerald-600"
+                                            : "bg-rose-600 text-white border-rose-600"
+                                          : "bg-white border-slate-300 text-slate-600"
+                                      }`}
+                                    >
+                                      {hh.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <Field label="Antiséptico / material usado" className="mt-2">
+                                <TextInput
+                                  value={ses.antiseptico || ""}
+                                  onChange={(e) => upd({ antiseptico: e.target.value })}
+                                  placeholder="Ej: clorhexidina 2% + apósito transparente"
+                                />
+                              </Field>
+                            </div>
+                          )}
+
+                          <Field label="Observaciones" className="mt-2">
+                            <TextInput
+                              value={ses.observaciones || ""}
+                              onChange={(e) => upd({ observaciones: e.target.value })}
+                              placeholder="Notas de la atención…"
+                            />
+                          </Field>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              guardarSesiones((p.sesiones || []).filter((x) => x.id !== ses.id));
+                              setExpandida(null);
+                            }}
+                            className="mt-2 text-rose-400 text-[11px] hover:text-rose-600 font-semibold"
+                          >
+                            Eliminar esta sesión
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
 
         {(p.periodos || []).length > 0 && (
           <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-2">
