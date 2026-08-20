@@ -637,6 +637,38 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+/* Imprime el contenido del área de impresión visible.
+   Clona el #print-area a un contenedor aislado (#print-portal) y marca el body
+   como "printing", de modo que solo eso se imprima, en flujo normal (sin
+   position:absolute, que rompía el salto de página con varias hojas). */
+function imprimirArea() {
+  const area = document.querySelector(".print-active #print-area") || document.getElementById("print-area");
+  if (!area) {
+    window.print();
+    return;
+  }
+  let portal = document.getElementById("print-portal");
+  if (!portal) {
+    portal = document.createElement("div");
+    portal.id = "print-portal";
+    document.body.appendChild(portal);
+  }
+  portal.innerHTML = "";
+  const clon = area.cloneNode(true);
+  clon.id = "print-area";
+  portal.appendChild(clon);
+  document.body.classList.add("printing");
+  const limpiar = () => {
+    document.body.classList.remove("printing");
+    portal.innerHTML = "";
+    window.removeEventListener("afterprint", limpiar);
+  };
+  window.addEventListener("afterprint", limpiar);
+  window.print();
+  // Respaldo por si afterprint no se dispara
+  setTimeout(limpiar, 1500);
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1195,14 +1227,13 @@ function alertasAmbulatorio(p) {
     } else if (dias !== null && dias >= 7) {
       alertas.push({ nivel: dias >= 14 ? "alta" : "media", texto: `Sin registro hace ${dias} días — la revisión es semanal` });
     }
+  } else if (p.enPausa) {
+    // Paciente en pausa (entre ciclos, según respuesta y controles): no se generan alertas de frecuencia
   } else if (soloLavado) {
     const dias = daysBetween(ultima.fecha, hoy);
     if (dias >= 90) alertas.push({ nivel: "media", texto: `Lavado de reservorio hace ${dias} días — se realiza cada 3 meses` });
-  } else {
-    const mesActual = hoy.slice(0, 7);
-    const tieneMes = ses.some((x) => (x.fecha || "").slice(0, 7) === mesActual);
-    if (!tieneMes) alertas.push({ nivel: "media", texto: "Sin registro en el mes en curso" });
   }
+  // En quimioterapia no se exige registro mensual: los ciclos dependen de la respuesta y los controles.
 
   // Hallazgos de curación en la última semana
   ses.slice(0, 8).forEach((x) => {
@@ -1228,6 +1259,7 @@ function newProcedimientoAmb() {
     fechaIngresoVigilancia: todayISO(),
     fechaEgresoVigilancia: "",
     motivoEgreso: "",
+    enPausa: false, // quimio entre ciclos: silencia alertas de frecuencia
     episodios: [], // [{ingreso, egreso, acceso, motivo}] episodios previos de exposición
     sesiones: [], // [{fecha, tipo, curacion, hallazgos[], antiseptico, observaciones}]
     periodos: [], // (legado) días/procedimiento por mes cargados a mano
@@ -4368,7 +4400,7 @@ function NotificacionPrintView({ notificacion, hospitalizacion, onClose }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de notificación IAAS</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / Guardar PDF
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
@@ -4536,9 +4568,9 @@ function AlertaAltaModal({ dias, nombre, onConfirmarAlta, onSigueHospitalizado }
 }
 
 /* Matriz horizontal: fechas en columnas, parámetros en filas (para el PDF) */
-const DIAS_POR_PAGINA = 4;
+const DIAS_POR_PAGINA = 5;
 
-function MatrizEvolucionHorizontal({ evoluciones }) {
+function MatrizEvolucionHorizontal({ evoluciones, paciente }) {
   const todas = [...evoluciones].sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
   if (todas.length === 0) return <div className="text-xs text-slate-500">Sin visitas registradas.</div>;
 
@@ -4550,8 +4582,14 @@ function MatrizEvolucionHorizontal({ evoluciones }) {
       {bloques.map((bloque, idx) => (
         <div key={idx} className={idx < bloques.length - 1 ? "bloque-matriz" : ""}>
           {bloques.length > 1 && (
-            <div className="text-[10px] text-slate-400 mb-1">
-              Visitas {idx * DIAS_POR_PAGINA + 1}–{idx * DIAS_POR_PAGINA + bloque.length} de {todas.length}
+            <div className="flex items-center justify-between text-[10px] mb-1 pb-0.5 border-b border-slate-200">
+              <span className="font-semibold text-slate-600">
+                {paciente ? `${paciente.nombre || ""}${paciente.rut ? " · " + paciente.rut : ""}` : ""}
+              </span>
+              <span className="text-slate-400">
+                Visitas {idx * DIAS_POR_PAGINA + 1}–{idx * DIAS_POR_PAGINA + bloque.length} de {todas.length}
+                {" · hoja "}{idx + 1}/{bloques.length}
+              </span>
             </div>
           )}
           <MatrizBloque evs={bloque} />
@@ -4739,7 +4777,7 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de vigilancia epidemiológica</span>
           <div className="flex items-center gap-2">
-            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / Guardar PDF
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
@@ -4816,7 +4854,7 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
             <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">
               Matriz de evolución diaria ({h.evoluciones.length} visita{h.evoluciones.length !== 1 ? "s" : ""})
             </div>
-            <MatrizEvolucionHorizontal evoluciones={h.evoluciones} />
+            <MatrizEvolucionHorizontal evoluciones={h.evoluciones} paciente={h} />
           </div>
 
           {/* Elementos de criterios IAAS y comentarios, por fecha (no caben en la tabla) */}
@@ -5879,7 +5917,7 @@ function DipListaPrintView({ hospitalizaciones, mes, servicio, onClose }) {
             >
               Excel
             </button>
-            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / PDF
             </button>
             <button onClick={onClose} className="rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold px-3 py-1.5">
@@ -6010,7 +6048,7 @@ function CirugiasListaPrintView({ cirugias, mes, onClose }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Listado de cirugías — {mesLargo(mes)}</span>
           <div className="flex gap-2">
-            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / PDF
             </button>
             <button onClick={onClose} className="rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold px-3 py-1.5">
@@ -6647,7 +6685,7 @@ function AmbulatorioListaPrintView({ procedimientos, mes, filtroTipo, onClose })
             >
               Excel
             </button>
-            <button onClick={() => window.print()} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / PDF
             </button>
             <button onClick={onClose} className="rounded-lg border border-slate-300 text-slate-600 text-xs font-semibold px-3 py-1.5">
@@ -6972,6 +7010,11 @@ function ProcedimientosView({ procedimientos, onSave, onDelete }) {
                     {t && <Pill tone="teal">{t.sigla}</Pill>}
                     {p.its === "SI" && <Pill tone="red">ITS</Pill>}
                     {!enCurso && <span className="text-[10px] text-slate-400 font-semibold">egresado</span>}
+                    {p.enPausa && enCurso && (
+                      <span className="text-[9px] font-bold bg-sky-100 text-sky-700 border border-sky-200 rounded px-1.5 py-0.5">
+                        en pausa
+                      </span>
+                    )}
                     {(p.episodios || []).length > 0 && (
                       <span className="text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-300 rounded px-1.5 py-0.5">
                         {(p.episodios || []).length + 1}º período
@@ -7137,6 +7180,36 @@ function ProcedimientoForm({ registro, onCancel, onSave, onPersist, onDelete }) 
               · {a.texto}
             </div>
           ))}
+        </div>
+      )}
+
+      {p.tipo === "quimio_cvc" && !p.fechaEgresoVigilancia && (
+        <div className={`rounded-xl border p-3 ${p.enPausa ? "border-sky-300 bg-sky-50" : "border-slate-200 bg-white"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-700">
+                {p.enPausa ? "En pausa entre ciclos" : "Ciclo activo"}
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {p.enPausa
+                  ? "No se generan alertas de frecuencia mientras esté en pausa."
+                  : "Si el paciente queda entre ciclos por controles o respuesta, márcalo en pausa para silenciar alertas."}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = { ...p, enPausa: !p.enPausa, updatedAt: new Date().toISOString() };
+                setP(next);
+                if (onPersist && (next.nombre || "").trim()) onPersist(next);
+              }}
+              className={`text-xs font-bold rounded-lg px-3 py-2 shrink-0 ${
+                p.enPausa ? "bg-sky-700 text-white" : "border border-slate-300 text-slate-600"
+              }`}
+            >
+              {p.enPausa ? "Reanudar" : "Marcar en pausa"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -7971,12 +8044,15 @@ function App() {
     <div className="min-h-screen bg-slate-50 pb-24">
       <style>{`
         @media print {
-          body * { visibility: hidden; }
-          .print-active #print-area, .print-active #print-area * { visibility: visible; }
-          .print-active #print-area { position: absolute; top: 0; left: 0; width: 100%; padding: 16px; }
+          /* Ocultar toda la app menos el área de impresión, en flujo normal
+             (nada de position:absolute, que rompe el salto de página). */
+          body.printing > * { display: none !important; }
+          body.printing #print-portal { display: block !important; }
+          #print-portal { display: none; }
+          #print-portal #print-area { padding: 0; }
+          .no-print { display: none !important; }
         }
-        @page ficha { size: A4 landscape; }
-        .ficha-vigilancia-print { page: ficha; }
+        @page { size: A4 landscape; margin: 12mm; }
 
         /* Panel: número grande de las tarjetas */
         .dash-num { font-size: 22px; }
@@ -7999,7 +8075,9 @@ function App() {
         }
         @media print {
           .bloque-matriz { page-break-after: always; break-after: page; }
+          .bloque-matriz:last-child { page-break-after: auto; break-after: auto; }
           table { page-break-inside: auto; }
+          thead { display: table-header-group; }
           tr { page-break-inside: avoid; break-inside: avoid; }
         }
       `}</style>
