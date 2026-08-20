@@ -281,7 +281,7 @@ const FileWarning = (p) => (
 
 const STORAGE_KEY = "vigilancia-iaas-hospitalizaciones";
 
-const SERVICIOS = ["UPC", "MQ", "Urgencia", "Medicina", "Otro"];
+const SERVICIOS = ["UPC", "MQ", "Cuidados Medios"];
 
 const SINTOMAS = [
   { key: "deposicionesLiquidas", label: "Deposiciones líquidas" },
@@ -541,14 +541,14 @@ function initCompartidos() {
 function ensureCriteriosIAAS(h) {
   const actual = h.criteriosIAAS || {};
   const result = { ...actual };
-  let algunFocoActivo = false;
   Object.keys(CRITERIOS_FOCOS).forEach((key) => {
     if (focoInstalado(h, key)) {
-      algunFocoActivo = true;
       if (!result[key]) result[key] = initEstadosFoco(key);
     }
   });
-  if (algunFocoActivo && !result.compartidos) {
+  // Los signos generales (fiebre, hipotensión, leucocitosis…) están SIEMPRE disponibles,
+  // haya o no dispositivos: son la base para pesquisar AREpi (que no dependen de DIP).
+  if (!result.compartidos) {
     result.compartidos = initCompartidos();
   }
   return result;
@@ -2013,7 +2013,7 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo, onNuevoRapido }) {
 /* Vista: Indicadores (tasas MINSAL)                                       */
 /* ---------------------------------------------------------------------- */
 
-const SERVICIOS_ITU = ["Medicina", "MQ", "UPC"]; // desglose ITU/CUP por servicio
+const SERVICIOS_ITU = ["UPC", "MQ", "Cuidados Medios"]; // desglose ITU/CUP por servicio
 
 function IndicadoresProcedimientos({ procedimientos = [], desde, hasta, onOpenCaso }) {
   const porTipo = TIPOS_PROCEDIMIENTO_AMB.map((t) => {
@@ -3120,7 +3120,7 @@ function SeccionSignosGenerales({ estados, onUpdate, hospitalizacion }) {
     <SectionCard
       icon={AlertTriangle}
       title="Signos generales (inespecíficos)"
-      subtitle="Hallazgos del paciente, no atados a ningún dispositivo. Marca los presentes con su fecha; orientan la búsqueda."
+      subtitle="Hallazgos del paciente, no atados a dispositivos. Base para pesquisar AREpi (bacteriemias, ITU, neumonía, etc.). Marca los presentes con su fecha."
     >
       <div className="space-y-1.5">
         {ELEMENTOS_COMPARTIDOS_IDS.map((id) => (
