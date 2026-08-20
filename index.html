@@ -1035,6 +1035,7 @@ function newHospitalizacion() {
     diagnostico: "",
     cirugias: [],
     antecedentes: "",
+    resumenHistorico: "", // cronología previa (pacientes de larga estadía importados)
     tipoAislamiento: "",
     aislamientos: [], // [{tipo, fecha, motivo}] múltiples y con historial
     agentesIAAS: "",
@@ -2904,6 +2905,14 @@ function NuevaFichaForm({ hospitalizaciones, onCancel, onCreate }) {
           </Field>
           <Field label="Antecedentes mórbidos" className="col-span-2">
             <TextArea value={form.antecedentes} onChange={(e) => set("antecedentes", e.target.value)} />
+          </Field>
+          <Field label="Resumen histórico de vigilancia (opcional)" className="col-span-2">
+            <TextArea
+              value={form.resumenHistorico || ""}
+              onChange={(e) => set("resumenHistorico", e.target.value)}
+              placeholder="Para pacientes de larga estadía: pega aquí la cronología previa de tu ficha en Word. Queda como respaldo consultable, sin registrar visita por visita. Desde aquí en adelante registras las visitas normalmente."
+              style={{ minHeight: "120px" }}
+            />
           </Field>
           <Field label="Tipo(s) de aislamiento al ingreso" className="col-span-2">
             <div className="flex flex-wrap gap-2 mt-1">
@@ -4850,6 +4859,13 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
             )}
           </div>
 
+          {h.resumenHistorico && (
+            <div className="mb-3 bloque-matriz">
+              <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Resumen histórico de vigilancia</div>
+              <div className="text-[11px] whitespace-pre-wrap leading-relaxed">{h.resumenHistorico}</div>
+            </div>
+          )}
+
           <div className="mb-3">
             <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">
               Matriz de evolución diaria ({h.evoluciones.length} visita{h.evoluciones.length !== 1 ? "s" : ""})
@@ -5234,6 +5250,28 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
           <div><span className="text-slate-400">Aislamiento:</span> {formatAislamientos(hospitalizacion)}</div>
           <div><span className="text-slate-400">Agentes IAAS:</span> {hospitalizacion.agentesIAAS || "—"}</div>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        icon={History}
+        title="Resumen histórico de vigilancia"
+        defaultOpen={!!hospitalizacion.resumenHistorico}
+      >
+        <p className="text-[11px] text-slate-500 mb-2">
+          Cronología previa del paciente (larga estadía). Queda como respaldo consultable y sale en la ficha impresa.
+          Las visitas nuevas se registran abajo, con sus fechas y criterios.
+        </p>
+        <TextArea
+          value={hospitalizacion.resumenHistorico || ""}
+          onChange={(e) => onUpdate({ ...hospitalizacion, resumenHistorico: e.target.value, updatedAt: new Date().toISOString() })}
+          placeholder="Pega aquí la cronología de tu ficha en Word…"
+          style={{ minHeight: "140px" }}
+        />
+        {hospitalizacion.resumenHistorico && (
+          <div className="text-[10px] text-slate-400 mt-1">
+            {hospitalizacion.resumenHistorico.length} caracteres · se guarda automáticamente
+          </div>
+        )}
       </SectionCard>
 
       {hospitalizacion.estado === "activo" && (
