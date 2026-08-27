@@ -641,7 +641,7 @@ function uid() {
    Clona el #print-area a un contenedor aislado (#print-portal) y marca el body
    como "printing", de modo que solo eso se imprima, en flujo normal (sin
    position:absolute, que rompía el salto de página con varias hojas). */
-function imprimirArea() {
+function imprimirArea(orientacion) {
   const area = document.querySelector(".print-active #print-area") || document.getElementById("print-area");
   if (!area) {
     window.print();
@@ -658,8 +658,11 @@ function imprimirArea() {
   clon.id = "print-area";
   portal.appendChild(clon);
   document.body.classList.add("printing");
+  // Orientación: "vertical" o "horizontal" (por defecto horizontal)
+  document.body.classList.remove("print-vertical", "print-horizontal");
+  document.body.classList.add(orientacion === "vertical" ? "print-vertical" : "print-horizontal");
   const limpiar = () => {
-    document.body.classList.remove("printing");
+    document.body.classList.remove("printing", "print-vertical", "print-horizontal");
     portal.innerHTML = "";
     window.removeEventListener("afterprint", limpiar);
   };
@@ -4870,13 +4873,29 @@ function formatVmiParam(p) {
 
 function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
   const cateteres = h.dip?.cvc?.cateteres || [];
+  // Egresados por defecto en vertical; activos en horizontal (por la matriz ancha).
+  const [orientacion, setOrientacion] = useState(h.estado === "cerrado" ? "vertical" : "horizontal");
   return (
     <div className="print-active fixed inset-0 bg-slate-900/50 z-50 overflow-y-auto">
       <div className="max-w-2xl mx-auto my-4 bg-white rounded-xl shadow-lg">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de vigilancia epidemiológica</span>
           <div className="flex items-center gap-2">
-            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              <button
+                onClick={() => setOrientacion("horizontal")}
+                className={`text-xs font-semibold px-2.5 py-1.5 ${orientacion === "horizontal" ? "bg-slate-700 text-white" : "bg-white text-slate-600"}`}
+              >
+                Horizontal
+              </button>
+              <button
+                onClick={() => setOrientacion("vertical")}
+                className={`text-xs font-semibold px-2.5 py-1.5 ${orientacion === "vertical" ? "bg-slate-700 text-white" : "bg-white text-slate-600"}`}
+              >
+                Vertical
+              </button>
+            </div>
+            <button onClick={() => imprimirArea(orientacion)} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / Guardar PDF
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
@@ -8199,7 +8218,17 @@ function App() {
           #print-portal #print-area { padding: 0; }
           .no-print { display: none !important; }
         }
+        /* Orientación elegible al imprimir: páginas nombradas para horizontal/vertical */
+        @page landscape-page { size: A4 landscape; margin: 12mm; }
+        @page portrait-page { size: A4 portrait; margin: 12mm; }
         @page { size: A4 landscape; margin: 12mm; }
+        @media print {
+          body.printing.print-horizontal #print-area { page: landscape-page; }
+          body.printing.print-vertical #print-area { page: portrait-page; }
+          /* En vertical, la matriz ancha se ajusta al ancho de página */
+          body.print-vertical #print-area table { font-size: 8px; }
+          body.print-vertical #print-area { font-size: 11px; }
+        }
 
         /* Panel: número grande de las tarjetas */
         .dash-num { font-size: 22px; }
