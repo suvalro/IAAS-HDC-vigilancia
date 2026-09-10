@@ -2022,7 +2022,7 @@ function CensoView({ hospitalizaciones, onOpen, onNuevo, onNuevoRapido }) {
           </button>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2 censo-grid">
           {filtrados
             .map((h) => ({ h, alertas: alertasDePaciente(h) }))
             .sort((a, b) => {
@@ -8564,6 +8564,31 @@ function App() {
           .dash-cols { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; align-items: start; }
         }
 
+        /* ═══ Vista de escritorio (computador) ═══
+           Solo se activa en pantallas anchas. En celular NO cambia nada. */
+        @media (min-width: 1024px) {
+          /* La barra inferior pasa a ser menú lateral fijo a la izquierda */
+          .nav-barra { position: fixed !important; top: 0; left: 0; bottom: 0; right: auto !important;
+            width: 180px; max-width: 180px !important; padding: 0 !important; z-index: 30; }
+          .nav-barra > div { flex-direction: column !important; height: 100%; border-top: none !important;
+            border-right: 1px solid #e2e8f0; box-shadow: none !important; padding-top: 64px !important;
+            align-items: stretch !important; gap: 2px; padding-left: 8px; padding-right: 8px; }
+          .nav-barra button { flex: none !important; flex-direction: row !important; justify-content: flex-start;
+            gap: 10px !important; padding: 11px 12px !important; border-radius: 8px; font-size: 14px !important; }
+          .nav-barra button svg { width: 19px; height: 19px; }
+          /* El contenido se corre a la derecha del menú y usa todo el ancho */
+          .app-contenido { max-width: 1160px !important; margin-left: 200px !important; margin-right: auto;
+            padding-left: 20px; padding-right: 20px; }
+          /* El encabezado superior también deja espacio al menú */
+          .app-topbar { padding-left: 196px !important; }
+          /* Censo y listas: pacientes en dos columnas */
+          .censo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+        }
+        @media (min-width: 1440px) {
+          .app-contenido { max-width: 1360px !important; }
+          .censo-grid { grid-template-columns: 1fr 1fr 1fr; }
+        }
+
         /* Modo presentación: todo más grande para proyectar */
         .dash-presenta .dash-num { font-size: 40px; }
         .dash-presenta { font-size: 15px; }
@@ -8579,7 +8604,7 @@ function App() {
           tr { page-break-inside: avoid; break-inside: avoid; }
         }
       `}</style>
-      <div className="bg-teal-800 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+      <div className="app-topbar bg-teal-800 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-2">
           <Stethoscope size={19} />
           <div>
@@ -8601,7 +8626,7 @@ function App() {
         </div>
       </div>
 
-      <div className={`mx-auto px-4 pt-4 ${view === "panel" ? "max-w-lg app-ancho" : "max-w-lg"}`}>
+      <div className={`app-contenido mx-auto px-4 pt-4 ${view === "panel" ? "max-w-lg app-ancho" : "max-w-lg"}`}>
         {view === "panel" && (
           <DashboardView
             hospitalizaciones={visibles}
@@ -8755,7 +8780,7 @@ function App() {
         )}
       </div>
 
-      <div className="max-w-lg mx-auto px-4 fixed bottom-0 left-0 right-0">
+      <div className="nav-barra max-w-lg mx-auto px-4 fixed bottom-0 left-0 right-0">
         <div className="max-w-lg mx-auto bg-white border-t border-slate-200 flex shadow-[0_-2px_8px_rgba(0,0,0,0.04)]" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           {[
             { key: "panel", label: "Panel", icon: LayoutGrid },
