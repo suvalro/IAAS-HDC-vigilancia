@@ -672,6 +672,67 @@ function imprimirArea(orientacion) {
   setTimeout(limpiar, 1500);
 }
 
+/* ── Colaboración: bitácora y cola de aprobación ──────────────────────────
+   La bitácora y los cambios pendientes se guardan como registros especiales
+   dentro de la misma lista sincronizada (tipoRegistro "bitacora" / "pendiente"),
+   así viajan por la nube sin cambios extra en el servidor. */
+
+function rolUsuario() {
+  return (USUARIO && USUARIO.rol) || "enfermera";
+}
+function nombreUsuario() {
+  return (USUARIO && USUARIO.nombre) || rolUsuario();
+}
+/* La enfermera IAAS es la responsable: aprueba y ve todo. */
+function esResponsable() {
+  return rolUsuario() === "enfermera";
+}
+function esColaborador() {
+  return rolUsuario() === "colaborador";
+}
+
+function nombreRegistro(h) {
+  if (!h) return "—";
+  if (h.tipoRegistro === "cirugia") return `Cirugía · ${h.nombre || "sin nombre"}`;
+  if (h.tipoRegistro === "procedimiento") return `Ambulatorio · ${h.nombre || "sin nombre"}`;
+  return h.nombre || "sin nombre";
+}
+
+/* Entrada de bitácora */
+function nuevaBitacora(accion, registro, detalle) {
+  return {
+    id: "log-" + uid(),
+    tipoRegistro: "bitacora",
+    accion, // "crear" | "modificar" | "eliminar" | "aprobar" | "rechazar"
+    objetoId: registro ? registro.id : "",
+    objetoNombre: nombreRegistro(registro),
+    detalle: detalle || "",
+    usuario: nombreUsuario(),
+    rol: rolUsuario(),
+    fecha: new Date().toISOString(),
+  };
+}
+
+/* Cambio que espera aprobación de la responsable */
+function nuevoPendiente(accion, antes, despues) {
+  return {
+    id: "pend-" + uid(),
+    tipoRegistro: "pendiente",
+    accion, // "modificar" | "eliminar"
+    objetoId: (despues || antes).id,
+    objetoNombre: nombreRegistro(despues || antes),
+    snapshotDespues: accion === "modificar" ? despues : null, // cómo quedaría si se aprueba
+    usuario: nombreUsuario(),
+    rol: rolUsuario(),
+    fecha: new Date().toISOString(),
+    estado: "pendiente", // "pendiente" | "aprobado" | "rechazado"
+  };
+}
+
+function esRegistroClinico(h) {
+  return h && h.tipoRegistro !== "bitacora" && h.tipoRegistro !== "pendiente";
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -770,6 +831,22 @@ function cateteresCVCActivos(h) {
 function focoInstalado(h, key) {
   if (key === "cvc") return cateteresCVCActivos(h).length > 0;
   return !!h.dip?.[key]?.instalado && !h.dip[key]?.fechaRetiro;
+}
+
+/* Dispositivos que siguen instalados (sin fecha de retiro) al momento del cierre. */
+function dispositivosSinRetiro(h) {
+  const out = [];
+  cateteresCVCActivos(h).forEach((c) => {
+    out.push({ key: "cvc", label: `CVC${c.tipo ? " (" + c.tipo + ")" : ""}${c.ubicacion ? " · " + c.ubicacion : ""}` });
+  });
+  ["cup", "vmi"].forEach((key) => {
+    const d = h.dip?.[key];
+    if (d?.instalado && !d.fechaRetiro) {
+      const nombre = DISPOSITIVOS.find((x) => x.key === key);
+      out.push({ key, label: nombre ? nombre.full : key.toUpperCase() });
+    }
+  });
+  return out;
 }
 
 function focoDiasTotal(h, key) {
@@ -959,7 +1036,7 @@ function diasDipPacientePeriodo(h, key, desde, hasta, servicio, condicion) {
 function calcularTasa(hospitalizaciones, focoKey, desde, hasta, servicio, condicion) {
   let diasDip = 0;
   const listaCasos = [];
-  hospitalizaciones.forEach((h) => {
+  hospitalizaciones.filter(esRegistroClinico).forEach((h) => {
     diasDip += diasDipPacientePeriodo(h, focoKey, desde, hasta, servicio, condicion);
     // Un caso cuenta si hay una notificación con este foco = "SI", confirmada, con fecha en el período
     (h.notificaciones || []).forEach((n) => {
@@ -3710,6 +3787,14 @@ function CierreForm({ hospitalizacion, onCancel, onConfirm }) {
   const [fechaAlta, setFechaAlta] = useState(todayISO());
   const [presentoIAAS, setPresentoIAAS] = useState("");
   const [obs, setObs] = useState("");
+  const [justificaPend, setJustificaPend] = useState(false);
+
+  const cultPend = cultivosPendientes(hospitalizacion);
+  const dispPend = dispositivosSinRetiro(hospitalizacion);
+  const hayPendientes = cultPend.length > 0 || dispPend.length > 0;
+  // Con pendientes, el cierre se bloquea hasta resolverlos o justificar explícitamente.
+  const puedeCerrar = !!presentoIAAS && (!hayPendientes || justificaPend);
+
   return (
     <div className="fixed inset-0 bg-slate-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
       <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
@@ -3717,6 +3802,48 @@ function CierreForm({ hospitalizacion, onCancel, onConfirm }) {
           <h2 className="font-bold text-slate-800">Cerrar ficha de vigilancia</h2>
           <button onClick={onCancel}><X size={18} className="text-slate-400" /></button>
         </div>
+
+        {hayPendientes && (
+          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <AlertTriangle size={15} className="text-amber-600" />
+              <span className="text-sm font-bold text-amber-800">Hay pendientes antes de cerrar</span>
+            </div>
+            {dispPend.length > 0 && (
+              <div className="mb-1.5">
+                <div className="text-[11px] font-semibold text-amber-800">Dispositivos sin fecha de retiro:</div>
+                {dispPend.map((d, i) => (
+                  <div key={i} className="text-[11px] text-amber-700">· {d.label}</div>
+                ))}
+              </div>
+            )}
+            {cultPend.length > 0 && (
+              <div className="mb-1.5">
+                <div className="text-[11px] font-semibold text-amber-800">Cultivos pendientes de resultado:</div>
+                {cultPend.map((c, i) => (
+                  <div key={i} className="text-[11px] text-amber-700">· {c.label} (tomado {fmtDate(c.fecha)})</div>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-amber-700 mt-1">
+              Lo correcto es registrar el retiro del dispositivo y el resultado del cultivo en una visita antes de cerrar.
+              Si el paciente egresó con el dispositivo o el resultado no llegará, deja constancia:
+            </p>
+            <button
+              type="button"
+              onClick={() => setJustificaPend((v) => !v)}
+              className="flex items-start gap-2 mt-2 text-left"
+            >
+              <span className={`inline-block w-4 h-4 rounded border shrink-0 mt-0.5 ${justificaPend ? "bg-amber-600 border-amber-600" : "border-amber-400 bg-white"}`}>
+                {justificaPend && <span className="text-white text-[10px] leading-none block text-center">✓</span>}
+              </span>
+              <span className="text-[11px] text-amber-800 font-medium">
+                Confirmo que reviso estos pendientes y aun así corresponde cerrar (lo anoto en observaciones).
+              </span>
+            </button>
+          </div>
+        )}
+
         <Field label="Fecha de alta / egreso">
           <TextInput type="date" value={fechaAlta} onChange={(e) => setFechaAlta(e.target.value)} />
         </Field>
@@ -3747,8 +3874,15 @@ function CierreForm({ hospitalizacion, onCancel, onConfirm }) {
             Cancelar
           </button>
           <button
-            disabled={!presentoIAAS}
-            onClick={() => onConfirm({ fechaAlta, presentoIAAS, obs })}
+            disabled={!puedeCerrar}
+            onClick={() =>
+              onConfirm({
+                fechaAlta,
+                presentoIAAS,
+                obs,
+                cerradoConPendientes: hayPendientes ? { cultivos: cultPend.length, dispositivos: dispPend.length } : null,
+              })
+            }
             className="flex-[2] rounded-lg bg-slate-800 disabled:bg-slate-300 text-white font-semibold text-sm py-2.5"
           >
             Confirmar cierre
@@ -5241,7 +5375,9 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
       criteriosIAAS: criteriosIAAS || hospitalizacion.criteriosIAAS,
       updatedAt: new Date().toISOString(),
     };
-    onUpdate(updated);
+    // Visita nueva o completar cultivos pendientes = agregar (directo).
+    // Editar una visita ya guardada = editar (requiere aprobación del colaborador).
+    onUpdate(updated, yaExiste ? "editar" : "agregar");
     setAddingEvolucion(false);
     setEditingEvolucion(null);
   };
@@ -5265,7 +5401,7 @@ function FichaDetail({ hospitalizacion, allHospitalizaciones, onBack, onUpdate, 
   const guardarNotificacion = (n) => {
     const yaExiste = notificaciones.some((x) => x.id === n.id);
     const list = yaExiste ? notificaciones.map((x) => (x.id === n.id ? n : x)) : [...notificaciones, n];
-    onUpdate({ ...hospitalizacion, notificaciones: list, updatedAt: new Date().toISOString() });
+    onUpdate({ ...hospitalizacion, notificaciones: list, updatedAt: new Date().toISOString() }, "agregar");
     setNotificando(false);
     setEditingNotif(null);
   };
@@ -6344,8 +6480,13 @@ function CirugiasView({ cirugias, onSave, onDelete }) {
   const ordenadas = [...lista].sort((a, b) => (a.fechaProcedimiento < b.fechaProcedimiento ? 1 : -1));
 
   const darAlta = (c) => {
-    if (!window.confirm(`¿Dar alta de vigilancia a ${c.nombre}?\n\nSe cierra el seguimiento y el registro pasa al histórico. Seguirá contando en los indicadores y podrás consultarlo para auditoría.`)) return;
-    onSave({ ...c, estado: "cerrado", fechaAlta: c.fechaAlta || todayISO(), updatedAt: new Date().toISOString() });
+    const pz = plazoCirugia(c);
+    let msg = `¿Dar alta de vigilancia a ${c.nombre}?\n\nSe cierra el seguimiento y pasa al histórico. Seguirá contando en los indicadores.`;
+    if (!pz.cumplido) {
+      msg = `⚠ El plazo de vigilancia AÚN NO se cumple (día ${pz.transcurridos} de ${pz.requeridos}, faltan ${pz.restantes}).\n\n${c.nombre} debería seguir en vigilancia hasta completar el seguimiento.\n\n¿Dar de alta de todas formas?`;
+    }
+    if (!window.confirm(msg)) return;
+    onSave({ ...c, estado: "cerrado", fechaAlta: c.fechaAlta || todayISO(), altaAnticipada: !pz.cumplido, updatedAt: new Date().toISOString() });
   };
 
   return (
@@ -6697,7 +6838,10 @@ function CirugiaForm({ registro, onCancel, onSave, onPersist, onDelete }) {
               </div>
               <button
                 type="button"
-                onClick={() => setC((x) => ({ ...x, estado: "cerrado", fechaAlta: x.fechaAlta || todayISO() }))}
+                onClick={() => {
+                  if (!pz.cumplido && !window.confirm(`⚠ El plazo de vigilancia aún no se cumple (día ${pz.transcurridos} de ${pz.requeridos}, faltan ${pz.restantes}). ¿Dar de alta de todas formas?`)) return;
+                  setC((x) => ({ ...x, estado: "cerrado", fechaAlta: x.fechaAlta || todayISO(), altaAnticipada: !pz.cumplido }));
+                }}
                 className="text-xs font-semibold rounded-lg px-3 py-2 border border-teal-700 text-teal-700 hover:bg-teal-50 shrink-0"
               >
                 Dar alta
@@ -7882,7 +8026,7 @@ function riesgoServicio(hospitalizaciones, servicio, desde, hasta) {
   return { servicio, nivel, casos, prolongados, alertasAltas, alertasMedias, pacientes: activos.length, motivos };
 }
 
-function DashboardView({ hospitalizaciones, cirugias, procedimientos, anio, cuatri, onIrA, onOpenPaciente }) {
+function DashboardView({ hospitalizaciones, cirugias, procedimientos, anio, cuatri, onIrA, onOpenPaciente, nPendientes, mostrarControl }) {
   const [oculto, setOculto] = useState(false);
   const [presentacion, setPresentacion] = useState(false);
   const { desde, hasta } = rangoCuatrimestre(anio, cuatri);
@@ -8026,6 +8170,19 @@ function DashboardView({ hospitalizaciones, cirugias, procedimientos, anio, cuat
             <Maximize size={13} />
             {presentacion ? "Salir" : "Proyectar"}
           </button>
+          {mostrarControl && (
+            <button
+              onClick={() => onIrA("control")}
+              className="relative rounded-lg border border-slate-300 text-slate-600 px-2.5 py-1.5 text-[11px] font-semibold flex items-center gap-1"
+            >
+              <ShieldAlert size={13} /> Control
+              {nPendientes > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-rose-600 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
+                  {nPendientes}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -8142,6 +8299,125 @@ function DashboardView({ hospitalizaciones, cirugias, procedimientos, anio, cuat
   );
 }
 
+/* ── Vista de control: cambios pendientes de aprobar + bitácora ──────────── */
+function ControlView({ pendientes, bitacora, onResolver, onOpenObjeto }) {
+  const [tab, setTab] = useState("pendientes");
+  const bitOrden = [...bitacora].sort((a, b) => (a.fecha < b.fecha ? 1 : -1)).slice(0, 200);
+
+  const iconoAccion = {
+    crear: { txt: "creó", color: "text-emerald-700" },
+    modificar: { txt: "modificó", color: "text-amber-700" },
+    eliminar: { txt: "eliminó", color: "text-rose-700" },
+    aprobar: { txt: "aprobó", color: "text-teal-700" },
+    rechazar: { txt: "rechazó", color: "text-slate-600" },
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-bold text-slate-800">Control de cambios</h1>
+        <p className="text-xs text-slate-500">Aprueba o rechaza cambios y revisa el historial de actividad.</p>
+      </div>
+
+      <div className="flex gap-2">
+        {[
+          { k: "pendientes", label: `Por aprobar (${pendientes.length})` },
+          { k: "bitacora", label: "Bitácora" },
+        ].map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setTab(t.k)}
+            className={`text-xs font-semibold rounded-full px-3 py-1.5 border ${
+              tab === t.k ? "bg-teal-700 text-white border-teal-700" : "bg-white border-slate-300 text-slate-600"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "pendientes" ? (
+        pendientes.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white py-10 text-center text-sm text-slate-400">
+            No hay cambios esperando tu aprobación.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {pendientes.map((p) => (
+              <div
+                key={p.id}
+                className={`rounded-xl border p-3 ${p.accion === "eliminar" ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"}`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className={`text-xs font-bold ${p.accion === "eliminar" ? "text-rose-700" : "text-amber-800"}`}>
+                    {p.accion === "eliminar" ? "Solicita ELIMINAR" : "Solicita MODIFICAR"}
+                  </span>
+                  <span className="text-[10px] text-slate-500">{fmtFechaHora(p.fecha)}</span>
+                </div>
+                <div className="text-sm font-semibold text-slate-800">{p.objetoNombre}</div>
+                <div className="text-[11px] text-slate-500 mb-2">Solicitado por {p.usuario}</div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onResolver(p, true)}
+                    className="flex-1 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold py-2"
+                  >
+                    Aprobar
+                  </button>
+                  <button
+                    onClick={() => onResolver(p, false)}
+                    className="flex-1 rounded-lg border border-slate-300 text-slate-600 text-xs font-bold py-2"
+                  >
+                    Rechazar
+                  </button>
+                  {p.objetoId && (
+                    <button
+                      onClick={() => onOpenObjeto(p.objetoId)}
+                      className="rounded-lg border border-slate-300 text-slate-500 text-xs font-semibold px-3 py-2"
+                    >
+                      Ver
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+          {bitOrden.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-400">Sin actividad registrada aún.</div>
+          ) : (
+            bitOrden.map((b) => {
+              const a = iconoAccion[b.accion] || { txt: b.accion, color: "text-slate-600" };
+              return (
+                <div key={b.id} className="px-3 py-2 text-xs flex items-start gap-2">
+                  <span className="text-slate-400 shrink-0 w-24">{fmtFechaHora(b.fecha)}</span>
+                  <span className="min-w-0">
+                    <b className="text-slate-700">{b.usuario}</b>{" "}
+                    <span className={a.color}>{a.txt}</span>{" "}
+                    <span className="text-slate-600">{b.objetoNombre}</span>
+                    {b.detalle && b.accion !== "crear" && b.accion !== "modificar" && b.accion !== "eliminar" && (
+                      <span className="block text-[10px] text-slate-400">{b.detalle}</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtFechaHora(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" }) + " " +
+    d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+}
+
 function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -8165,36 +8441,82 @@ function App() {
   }, []);
 
   const handleCreate = async (nuevaFicha) => {
-    const ficha = { ...nuevaFicha, updatedAt: new Date().toISOString() };
-    const list = [...hospitalizaciones, ficha];
+    const ficha = { ...nuevaFicha, creadoPor: nombreUsuario(), updatedAt: new Date().toISOString() };
+    // Crear entra directo para todos; queda registrado en la bitácora.
+    const list = [...hospitalizaciones, ficha, nuevaBitacora("crear", ficha, "Registro creado")];
     setHospitalizaciones(list);
     setSelectedId(ficha.id);
     setView("ficha");
     persist(list);
   };
 
-  const handleUpdate = async (updated) => {
+  /* accion: "agregar" (visita/registro nuevo o completar tarea pendiente → directo)
+             "editar"  (cambiar contenido ya existente → aprobación para el colaborador) */
+  const handleUpdate = async (updated, accion) => {
     const u = { ...updated, updatedAt: new Date().toISOString() };
-    const list = hospitalizaciones.map((h) => (h.id === u.id ? u : h));
+    // El colaborador SOLO pasa por aprobación cuando edita contenido existente.
+    // Agregar visitas nuevas y completar tareas pendientes (cultivos, notificaciones) va directo.
+    if (esColaborador() && accion === "editar") {
+      const antes = hospitalizaciones.find((h) => h.id === u.id);
+      const pend = nuevoPendiente("modificar", antes, u);
+      const list = [...hospitalizaciones, pend, nuevaBitacora("modificar", u, "Solicitó modificar contenido ya registrado (pendiente de aprobación)")];
+      setHospitalizaciones(list);
+      persist(list);
+      window.alert("Modificar un registro ya hecho requiere aprobación de la enfermera IAAS responsable. Tu solicitud quedó pendiente.");
+      return;
+    }
+    const detalle = accion === "agregar" ? "Agregó / completó información" : "Registro modificado";
+    const list = hospitalizaciones.map((h) => (h.id === u.id ? u : h)).concat(nuevaBitacora("modificar", u, detalle));
     setHospitalizaciones(list);
     persist(list);
   };
 
   const handleDelete = async (id) => {
-    const list = hospitalizaciones.map((h) =>
-      h.id === id ? { ...h, eliminado: true, updatedAt: new Date().toISOString() } : h
-    );
+    const objeto = hospitalizaciones.find((h) => h.id === id);
+    if (esColaborador()) {
+      const pend = nuevoPendiente("eliminar", objeto, null);
+      const list = [...hospitalizaciones, pend, nuevaBitacora("eliminar", objeto, "Solicitó eliminar (pendiente de aprobación)")];
+      setHospitalizaciones(list);
+      setSelectedId(null);
+      setView("censo");
+      persist(list);
+      window.alert("Tu solicitud de eliminar quedó pendiente de aprobación por la enfermera IAAS responsable.");
+      return;
+    }
+    const list = hospitalizaciones
+      .map((h) => (h.id === id ? { ...h, eliminado: true, updatedAt: new Date().toISOString() } : h))
+      .concat(nuevaBitacora("eliminar", objeto, "Registro eliminado"));
     setHospitalizaciones(list);
     setSelectedId(null);
     setView("censo");
     persist(list);
   };
 
-  const visibles = hospitalizaciones.filter(
+  /* Resolver un cambio pendiente (solo la responsable) */
+  const resolverPendiente = async (pend, aprobar) => {
+    let list = hospitalizaciones.map((h) =>
+      h.id === pend.id ? { ...h, estado: aprobar ? "aprobado" : "rechazado", resueltoPor: nombreUsuario(), fechaResolucion: new Date().toISOString() } : h
+    );
+    if (aprobar) {
+      if (pend.accion === "modificar" && pend.snapshotDespues) {
+        list = list.map((h) => (h.id === pend.objetoId ? { ...pend.snapshotDespues, updatedAt: new Date().toISOString() } : h));
+      } else if (pend.accion === "eliminar") {
+        list = list.map((h) => (h.id === pend.objetoId ? { ...h, eliminado: true, updatedAt: new Date().toISOString() } : h));
+      }
+    }
+    list = list.concat(nuevaBitacora(aprobar ? "aprobar" : "rechazar", { id: pend.objetoId, nombre: pend.objetoNombre }, `${aprobar ? "Aprobó" : "Rechazó"} ${pend.accion} solicitada por ${pend.usuario}`));
+    setHospitalizaciones(list);
+    persist(list);
+  };
+
+  const clinicos = hospitalizaciones.filter(esRegistroClinico);
+  const visibles = clinicos.filter(
     (h) => !h.eliminado && h.tipoRegistro !== "cirugia" && h.tipoRegistro !== "ambulatorio" && h.tipoRegistro !== "procedimiento"
   );
-  const cirugias = hospitalizaciones.filter((h) => !h.eliminado && h.tipoRegistro === "cirugia");
-  const procedimientos = hospitalizaciones.filter((h) => !h.eliminado && h.tipoRegistro === "procedimiento");
+  const cirugias = clinicos.filter((h) => !h.eliminado && h.tipoRegistro === "cirugia");
+  const procedimientos = clinicos.filter((h) => !h.eliminado && h.tipoRegistro === "procedimiento");
+  const bitacora = hospitalizaciones.filter((h) => h.tipoRegistro === "bitacora");
+  const pendientesAprob = hospitalizaciones.filter((h) => h.tipoRegistro === "pendiente" && h.estado === "pendiente");
 
   const selected = hospitalizaciones.find((h) => h.id === selectedId);
 
@@ -8295,8 +8617,27 @@ function App() {
               setSelectedId(id);
               setView("ficha");
             }}
+            nPendientes={esResponsable() ? pendientesAprob.length : 0}
+            mostrarControl={esResponsable()}
           />
         )}
+
+        {view === "control" &&
+          (esResponsable() ? (
+            <ControlView
+              pendientes={[...pendientesAprob].sort((a, b) => (a.fecha < b.fecha ? 1 : -1))}
+              bitacora={bitacora}
+              onResolver={resolverPendiente}
+              onOpenObjeto={(id) => {
+                setSelectedId(id);
+                setView("ficha");
+              }}
+            />
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
+              Esta sección es exclusiva de la enfermera IAAS responsable.
+            </div>
+          ))}
 
         {view === "censo" && (
           <CensoView
