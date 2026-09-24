@@ -4636,7 +4636,7 @@ function NotificacionPrintView({ notificacion, hospitalizacion, onClose }) {
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 print:hidden">
           <span className="text-sm font-bold text-slate-700">Vista previa — Ficha de notificación IAAS</span>
           <div className="flex items-center gap-2">
-            <button onClick={imprimirArea} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
+            <button onClick={() => imprimirArea("vertical")} className="rounded-lg bg-teal-700 text-white text-xs font-semibold px-3 py-1.5">
               Imprimir / Guardar PDF
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
@@ -5101,6 +5101,72 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
               <div className="text-xs text-slate-500">Sin dispositivos invasivos registrados.</div>
             )}
           </div>
+
+          {/* Traslados de servicio y reparto de días-dispositivo por servicio (para auditoría) */}
+          {(() => {
+            const trs = [...(h.traslados || [])].filter((t) => t.fecha && t.servicio).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+            if (trs.length === 0) return null;
+            const condLabel = (c) => (c === "quirurgico" ? "quirúrgico" : c === "medico" ? "médico" : "");
+            // Servicios por los que pasó el paciente, en orden
+            const serviciosPasados = [];
+            [h.servicio, ...trs.map((t) => t.servicio)].forEach((sv) => {
+              if (sv && !serviciosPasados.includes(sv)) serviciosPasados.push(sv);
+            });
+            const rangoDesde = h.fechaHospitalizacion || h.fechaIngresoVigilancia;
+            const rangoHasta = h.cierre?.fechaAlta || todayISO();
+            const dispPresentes = DISPOSITIVOS.filter((d) => focoInstalado(h, d.key) || focoDiasTotal(h, d.key) > 0);
+            return (
+              <div className="mb-3">
+                <div className="font-bold text-xs uppercase mb-1 border-b border-slate-300">Traslados de servicio</div>
+                <div className="text-xs mb-2">
+                  <b>Ingreso:</b> {h.servicio}
+                  {condLabel(h.condicion) ? ` (${condLabel(h.condicion)})` : ""} · {fmtDate(rangoDesde)}
+                  {trs.map((t, i) => (
+                    <span key={i}>
+                      {" \u2192 "}
+                      <b>{t.servicio}</b>
+                      {condLabel(t.condicion) ? ` (${condLabel(t.condicion)})` : ""} · {fmtDate(t.fecha)}
+                    </span>
+                  ))}
+                </div>
+                {dispPresentes.length > 0 && (
+                  <table className="w-full border-collapse text-[10px]">
+                    <thead>
+                      <tr>
+                        <th className="border border-slate-300 px-1.5 py-1 text-left bg-slate-100 font-semibold">Servicio</th>
+                        {dispPresentes.map((d) => (
+                          <th key={d.key} className="border border-slate-300 px-1.5 py-1 text-center bg-slate-100 font-semibold">{d.label} (días)</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {serviciosPasados.map((sv) => (
+                        <tr key={sv}>
+                          <td className="border border-slate-300 px-1.5 py-1 font-semibold">{sv}</td>
+                          {dispPresentes.map((d) => (
+                            <td key={d.key} className="border border-slate-300 px-1.5 py-1 text-center">
+                              {diasDipPacientePeriodo(h, d.key, rangoDesde, rangoHasta, sv) || "\u2014"}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                      <tr>
+                        <td className="border border-slate-300 px-1.5 py-1 font-bold bg-slate-50">Total</td>
+                        {dispPresentes.map((d) => (
+                          <td key={d.key} className="border border-slate-300 px-1.5 py-1 text-center font-bold bg-slate-50">
+                            {diasDipPacientePeriodo(h, d.key, rangoDesde, rangoHasta) || "\u2014"}
+                          </td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+                <p className="text-[9px] text-slate-500 mt-1">
+                  Los días de cada dispositivo se reparten al servicio responsable de cada día calendario, seg\u00fan la fecha de traslado (metodolog\u00eda MINSAL).
+                </p>
+              </div>
+            );
+          })()}
 
           {h.resumenHistorico && (
             <div className="mb-3 bloque-matriz">
@@ -8548,8 +8614,8 @@ function App() {
           body.printing.print-horizontal #print-area { page: landscape-page; }
           body.printing.print-vertical #print-area { page: portrait-page; }
           /* En vertical, la matriz ancha se ajusta al ancho de página */
-          body.print-vertical #print-area table { font-size: 8px; }
-          body.print-vertical #print-area { font-size: 11px; }
+          body.print-vertical #print-area.ficha-vigilancia-print table { font-size: 8px; }
+          body.print-vertical #print-area.ficha-vigilancia-print { font-size: 11px; }
         }
 
         /* Panel: número grande de las tarjetas */
