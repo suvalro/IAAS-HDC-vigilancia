@@ -783,21 +783,30 @@ function condicionEnFecha(h, fecha) {
 /* Suma días-dispositivo de un tramo [inst, retiro] atribuidos a un servicio específico
    o a una condición (médico/quirúrgico), respetando los traslados: cada día calendario
    cuenta para el servicio/condición que regía ese día. */
-function diasDipEnServicioTramo(fInst, fRetiro, h, servicioObjetivo, desde, hasta, condicionObjetivo) {
+function diasDipEnServicioTramo(fInst, fRetiro, h, servicioObjetivo, desde, hasta, condicionObjetivo, retiroAntes) {
   if (!fInst) return 0;
   const ini = fInst > desde ? fInst : desde;
   const finReal = fRetiro || todayISO();
   const fin = finReal < hasta ? finReal : hasta;
   if (fin < ini) return 0;
   let cuenta = 0;
-  let d = new Date(ini + "T00:00:00");
-  const dFin = new Date(fin + "T00:00:00");
+  let d = new Date(ini + "T00:00:00Z");
+  const dFin = new Date(fin + "T00:00:00Z");
   while (d <= dFin) {
     const iso = d.toISOString().slice(0, 10);
-    const okServicio = !servicioObjetivo || servicioEnFecha(h, iso) === servicioObjetivo;
-    const okCondicion = !condicionObjetivo || condicionEnFecha(h, iso) === condicionObjetivo;
+    let servDia = servicioEnFecha(h, iso);
+    let condDia = condicionEnFecha(h, iso);
+    // Caso ambiguo: el DIP se retiró el mismo día del traslado y el usuario confirmó
+    // que el retiro fue ANTES del cambio → ese día cuenta al servicio/condición de origen.
+    if (retiroAntes && fRetiro && iso === fRetiro && hayTrasladoEnFecha(h, iso)) {
+      const prev = isoSuma(iso, -1);
+      servDia = servicioEnFecha(h, prev);
+      condDia = condicionEnFecha(h, prev);
+    }
+    const okServicio = !servicioObjetivo || servDia === servicioObjetivo;
+    const okCondicion = !condicionObjetivo || condDia === condicionObjetivo;
     if (okServicio && okCondicion) cuenta += 1;
-    d.setDate(d.getDate() + 1);
+    d.setUTCDate(d.getUTCDate() + 1);
   }
   return cuenta;
 }
@@ -806,6 +815,18 @@ function daysBetween(a, b) {
   const A = new Date(a + "T00:00:00");
   const B = new Date(b + "T00:00:00");
   return Math.round((B - A) / 86400000);
+}
+
+/* Suma n días a una fecha ISO (n puede ser negativo). */
+function isoSuma(iso, n) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* ¿Hay un traslado con servicio registrado exactamente en esta fecha? */
+function hayTrasladoEnFecha(h, iso) {
+  return (h.traslados || []).some((t) => t.fecha === iso && t.servicio);
 }
 
 function lastMovementDate(h) {
@@ -1027,17 +1048,17 @@ function diasDispositivoEnPeriodo(fInst, fRetiro, desde, hasta) {
 function diasDipPacientePeriodo(h, key, desde, hasta, servicio, condicion) {
   const tramos =
     key === "cvc"
-      ? (h.dip?.cvc?.cateteres || []).map((c) => [c.fechaInstalacion, c.fechaRetiro])
+      ? (h.dip?.cvc?.cateteres || []).map((c) => [c.fechaInstalacion, c.fechaRetiro, c.retiroTraslado === "antes"])
       : h.dip?.[key]?.instalado
       ? [
-          [h.dip[key].fechaInstalacion, h.dip[key].fechaRetiro],
-          ...(h.dip[key].previos || []).map((p) => [p.fechaInstalacion, p.fechaRetiro]),
+          [h.dip[key].fechaInstalacion, h.dip[key].fechaRetiro, h.dip[key].retiroTraslado === "antes"],
+          ...(h.dip[key].previos || []).map((p) => [p.fechaInstalacion, p.fechaRetiro, p.retiroTraslado === "antes"]),
         ]
       : [];
   if (tramos.length === 0) return 0;
 
   if (servicio || condicion) {
-    return tramos.reduce((s, [ini, fin]) => s + diasDipEnServicioTramo(ini, fin, h, servicio, desde, hasta, condicion), 0);
+    return tramos.reduce((s, [ini, fin, antes]) => s + diasDipEnServicioTramo(ini, fin, h, servicio, desde, hasta, condicion, antes), 0);
   }
   return tramos.reduce((s, [ini, fin]) => s + diasDispositivoEnPeriodo(ini, fin, desde, hasta), 0);
 }
@@ -5064,11 +5085,23 @@ function FichaVigilanciaPrintView({ hospitalizacion: h, onClose }) {
 
           <table className="w-full border-collapse text-xs mb-3">
             <tbody>
-              {!MODO_FICHA && <tr><td className="border border-slate-300 px-2 py-1 font-semibold w-1/4">Nombre</td><td className="border border-slate-300 px-2 py-1" colSpan={3}>{h.nombre}</td></tr>}
-              <tr>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">{MODO_FICHA ? "N° ficha HIS" : "RUT"}</td><td className="border border-slate-300 px-2 py-1">{MODO_FICHA ? (h.fichaHIS || "s/n°") : h.rut}</td>
-                <td className="border border-slate-300 px-2 py-1 font-semibold">Edad</td><td className="border border-slate-300 px-2 py-1">{h.edad}</td>
-              </tr>
+              {MODO_FICHA ? (
+                <tr>
+                  <td className="border border-slate-300 px-2 py-1 font-semibold w-1/4">N° ficha HIS</td><td className="border border-slate-300 px-2 py-1">{h.fichaHIS || "s/n°"}</td>
+                  <td className="border border-slate-300 px-2 py-1 font-semibold">Edad</td><td className="border border-slate-300 px-2 py-1">{h.edad}</td>
+                </tr>
+              ) : (
+                <>
+                  <tr>
+                    <td className="border border-slate-300 px-2 py-1 font-semibold w-1/4">Nombre</td><td className="border border-slate-300 px-2 py-1">{h.nombre}</td>
+                    <td className="border border-slate-300 px-2 py-1 font-semibold">N° ficha HIS</td><td className="border border-slate-300 px-2 py-1">{h.fichaHIS || "—"}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-slate-300 px-2 py-1 font-semibold">RUT</td><td className="border border-slate-300 px-2 py-1">{h.rut}</td>
+                    <td className="border border-slate-300 px-2 py-1 font-semibold">Edad</td><td className="border border-slate-300 px-2 py-1">{h.edad}</td>
+                  </tr>
+                </>
+              )}
               <tr>
                 <td className="border border-slate-300 px-2 py-1 font-semibold">Previsión</td><td className="border border-slate-300 px-2 py-1">{h.prevision}</td>
                 <td className="border border-slate-300 px-2 py-1 font-semibold">Servicio / Cama</td><td className="border border-slate-300 px-2 py-1">{h.servicio} · {h.cama || "—"}</td>
@@ -5333,6 +5366,44 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
     onUpdate({ ...h, traslados: list, updatedAt: new Date().toISOString() });
   };
 
+  // Dispositivos cuyo retiro cae EXACTAMENTE el día de un traslado: el día es ambiguo
+  // (puede contar al servicio de origen o al de destino). Se pide confirmar antes/después.
+  const labelDisp = (k) => (DISPOSITIVOS.find((d) => d.key === k) || {}).label || k.toUpperCase();
+  const ambiguos = [];
+  (h.traslados || [])
+    .filter((t) => t.fecha && t.servicio)
+    .forEach((t) => {
+      const origen = servicioEnFecha(h, isoSuma(t.fecha, -1));
+      // CVC (cada catéter)
+      (h.dip?.cvc?.cateteres || []).forEach((c) => {
+        if (c.fechaRetiro && c.fechaRetiro === t.fecha)
+          ambiguos.push({ loc: { key: "cvc", id: c.id }, nombre: "CVC " + (c.tipo || ""), fecha: t.fecha, destino: t.servicio, origen, actual: c.retiroTraslado });
+      });
+      // CUP / VMI (actual + previos)
+      ["cup", "vmi"].forEach((k) => {
+        const dd = h.dip?.[k];
+        if (dd?.instalado && dd.fechaRetiro === t.fecha)
+          ambiguos.push({ loc: { key: k }, nombre: labelDisp(k), fecha: t.fecha, destino: t.servicio, origen, actual: dd.retiroTraslado });
+        (dd?.previos || []).forEach((p, pi) => {
+          if (p.fechaRetiro === t.fecha)
+            ambiguos.push({ loc: { key: k, previoIdx: pi }, nombre: labelDisp(k) + " (previo)", fecha: t.fecha, destino: t.servicio, origen, actual: p.retiroTraslado });
+        });
+      });
+    });
+
+  const setRetiroTraslado = (loc, val) => {
+    const nd = JSON.parse(JSON.stringify(h.dip || {}));
+    if (loc.key === "cvc") {
+      const c = (nd.cvc?.cateteres || []).find((x) => x.id === loc.id);
+      if (c) c.retiroTraslado = val;
+    } else if (loc.previoIdx != null) {
+      if (nd[loc.key]?.previos?.[loc.previoIdx]) nd[loc.key].previos[loc.previoIdx].retiroTraslado = val;
+    } else if (nd[loc.key]) {
+      nd[loc.key].retiroTraslado = val;
+    }
+    onUpdate({ ...h, dip: nd, updatedAt: new Date().toISOString() });
+  };
+
   return (
     <SectionCard icon={ArrowRightLeft} title="Traslados de servicio" defaultOpen={false}>
       <p className="text-[11px] text-slate-500 mb-2">
@@ -5361,6 +5432,37 @@ function TrasladosCard({ hospitalizacion: h, onUpdate }) {
               <button onClick={() => eliminar(i)} className="text-rose-400 text-[11px] hover:text-rose-600">
                 Quitar
               </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {ambiguos.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 mb-2 space-y-2.5">
+          <div className="text-[11px] font-bold text-amber-800 flex items-center gap-1">
+            <AlertTriangle size={13} /> Retiro el mismo día del traslado — confirma para repartir bien los días
+          </div>
+          {ambiguos.map((a, i) => (
+            <div key={i} className="text-xs">
+              <div className="text-slate-700 mb-1">
+                <span className="font-semibold">{a.nombre}</span> se retiró el <span className="font-semibold">{fmtDate(a.fecha)}</span>,
+                el mismo día del traslado <span className="text-slate-500">{a.origen} → {a.destino}</span>. ¿El retiro fue antes o después del cambio?
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setRetiroTraslado(a.loc, "antes")}
+                  className={`flex-1 rounded-lg text-[11px] font-semibold py-1.5 px-2 border ${a.actual === "antes" ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-600 border-slate-300"}`}
+                >
+                  Antes · cuenta a {a.origen}
+                </button>
+                <button
+                  onClick={() => setRetiroTraslado(a.loc, "despues")}
+                  className={`flex-1 rounded-lg text-[11px] font-semibold py-1.5 px-2 border ${a.actual === "despues" ? "bg-teal-700 text-white border-teal-700" : "bg-white text-slate-600 border-slate-300"}`}
+                >
+                  Después · cuenta a {a.destino}
+                </button>
+              </div>
+              {!a.actual && <div className="text-[10px] text-amber-700 mt-1">Sin confirmar — por defecto ese día cuenta al servicio de destino ({a.destino}).</div>}
             </div>
           ))}
         </div>
